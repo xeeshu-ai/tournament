@@ -19,8 +19,13 @@ export function AppShell({ children }) {
   }, [])
 
   const handleLogin = async () => {
-    await supabasePlayer.auth.signInWithOAuth({ provider: 'google' })
-  }
+  await supabasePlayer.auth.signInWithOAuth({
+    provider: 'google',
+    options: {
+      redirectTo: window.location.origin
+    }
+  })
+}
 
   const handleLogout = async () => {
     await supabasePlayer.auth.signOut()
