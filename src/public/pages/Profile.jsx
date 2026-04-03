@@ -63,7 +63,7 @@ export function Profile() {
                   : 'font-semibold text-amber-300'
               }
             >
-              {statusLabel.charAt(0).upper() + statusLabel.slice(1)}
+              {statusLabel.charAt(0).toUpperCase() + statusLabel.slice(1)}  
             </span>
           </p>
           {!profile?.is_verified && (

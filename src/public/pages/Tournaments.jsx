@@ -28,7 +28,7 @@ export function Tournaments() {
     }
     load()
     return () => {
-      ignore = True
+      ignore = true 
     }
   }, [])
 
