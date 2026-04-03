@@ -18,15 +18,14 @@ export function AppShell({ children }) {
     }
   }, [])
 
-  const handleLogin = async () => {
+const handleLogin = async () => {
   await supabasePlayer.auth.signInWithOAuth({
     provider: 'google',
     options: {
-      redirectTo: window.location.origin
+      redirectTo: 'https://tournvia.netlify.app'
     }
   })
 }
-
   const handleLogout = async () => {
     await supabasePlayer.auth.signOut()
   }
