@@ -72,7 +72,7 @@ export function Profile() {
   if (!user) return <p className="text-xs text-slate-300">Login with Google to view your Tournvia profile.</p>
 
   // ── FIRST TIME: no profile row → show registration form ──
-  if (!profile) {
+  if (!profile || !profile.ff_uid) {
     return (
       <div className="mx-auto max-w-md space-y-5">
         <header className="space-y-1">
