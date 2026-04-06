@@ -14,7 +14,12 @@ export function TournamentDetails() {
       setLoading(true)
       const { data, error } = await supabasePlayer
         .from('tournaments')
-        .select('*, tournament_registrations(*), long_brackets(*), long_br_matches(*)')
+        // Fix: long_br_matches has no direct FK to tournaments.
+        // It links via bracket_id → long_brackets.id, so it must be
+        // nested inside long_brackets(*) — not queried at the top level.
+        // Previously: '*, tournament_registrations(*), long_brackets(*), long_br_matches(*)'
+        // That caused long_br_matches to always return null/error.
+        .select('*, tournament_registrations(*), long_brackets(*, long_br_matches(*))')
         .eq('id', id)
         .maybeSingle()
       if (!ignore) {
@@ -86,14 +91,35 @@ export function TournamentDetails() {
           {isLong && (
             <div className="card space-y-3">
               <h2 className="text-sm font-semibold text-slate-50">Bracket</h2>
-              <p className="text-xs text-slate-300">
-                When the admin generates fixtures, you will see the full knockout bracket here with each round and advancing winners.
-              </p>
-              <p className="text-[11px] text-slate-400">
-                This is a simplified placeholder view. Once your Supabase schema is created, this component reads from
-                <code className="mx-1 rounded bg-slate-900 px-1 py-0.5">long_brackets</code> and
-                <code className="mx-1 rounded bg-slate-900 px-1 py-0.5">long_br_matches</code> tables to render real fixtures.
-              </p>
+              {(tournament.long_brackets || []).length === 0 ? (
+                <p className="text-xs text-slate-400">
+                  Fixtures haven't been generated yet. Check back after registration closes.
+                </p>
+              ) : (
+                (tournament.long_brackets || []).map((bracket) => (
+                  <div key={bracket.id} className="space-y-2">
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">
+                      {bracket.name || `Bracket ${bracket.id}`}
+                    </p>
+                    <ul className="text-xs text-slate-200">
+                      {(bracket.long_br_matches || []).map((match) => (
+                        <li
+                          key={match.id}
+                          className="flex items-center justify-between border-b border-slate-800 py-1 last:border-0"
+                        >
+                          <span>Round {match.round_number} — Match {match.match_number}</span>
+                          <span className="text-[11px] text-slate-400">
+                            {match.winner_registration_id ? '✅ Decided' : 'Pending'}
+                          </span>
+                        </li>
+                      ))}
+                      {(!bracket.long_br_matches || bracket.long_br_matches.length === 0) && (
+                        <li className="text-xs text-slate-400">No matches yet.</li>
+                      )}
+                    </ul>
+                  </div>
+                ))
+              )}
             </div>
           )}
         </div>
