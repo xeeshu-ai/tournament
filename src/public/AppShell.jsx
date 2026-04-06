@@ -30,7 +30,9 @@ export function AppShell({ children }) {
   const handleLogin = async () => {
     await supabasePlayer.auth.signInWithOAuth({
       provider: 'google',
-      options: { redirectTo: 'https://tournvia.netlify.app' }
+      // Fix: use window.location.origin so OAuth works in local dev AND production
+      // Previously hardcoded to 'https://tournvia.netlify.app' which broke localhost
+      options: { redirectTo: window.location.origin }
     })
   }
 
