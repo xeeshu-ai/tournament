@@ -72,7 +72,7 @@ const handleLogin = async () => {
               <>
                 <Link
                   to="/profile"
-                  className="hidden items-center gap-2 rounded-full border border-slate-700/80 bg-slate-900/60 px-3 py-1 text-xs font-medium text-slate-200 hover:border-sky-500/70 md:inline-flex"
+                  className="inline-flex items-center gap-2 rounded-full border border-slate-700/80 bg-slate-900/60 px-3 py-1 text-xs font-medium text-slate-200 hover:border-sky-500/70"
                 >
                   <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-sky-500 text-[11px] font-semibold text-slate-950">
                     {user.email?.[0]?.toUpperCase()}
