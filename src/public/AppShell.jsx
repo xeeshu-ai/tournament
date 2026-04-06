@@ -22,7 +22,7 @@ export function AppShell({ children }) {
     supabasePlayer
       .from('players')
       .select('fullname, status')
-      .eq('auth_id', user.id)
+      .eq('authid', user.id)
       .maybeSingle()
       .then(({ data }) => setProfile(data ?? null))
   }, [user])
