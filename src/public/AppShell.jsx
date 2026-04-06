@@ -5,6 +5,7 @@ import { supabasePlayer } from '../lib/supabaseClient'
 export function AppShell({ children }) {
   const location = useLocation()
   const [user, setUser] = React.useState(null)
+  const [profile, setProfile] = React.useState(undefined) // undefined = loading, null = no profile
 
   React.useEffect(() => {
     supabasePlayer.auth.getUser().then(({ data }) => {
@@ -13,29 +14,104 @@ export function AppShell({ children }) {
     const { data: sub } = supabasePlayer.auth.onAuthStateChange((_event, session) => {
       setUser(session?.user ?? null)
     })
-    return () => {
-      sub.subscription.unsubscribe()
-    }
+    return () => sub.subscription.unsubscribe()
   }, [])
 
-const handleLogin = async () => {
-  await supabasePlayer.auth.signInWithOAuth({
-    provider: 'google',
-    options: {
-      redirectTo: 'https://tournvia.netlify.app'
-    }
-  })
-}
+  React.useEffect(() => {
+    if (!user) { setProfile(null); return }
+    supabasePlayer
+      .from('players')
+      .select('fullname, status')
+      .eq('auth_id', user.id)
+      .maybeSingle()
+      .then(({ data }) => setProfile(data ?? null))
+  }, [user])
+
+  const handleLogin = async () => {
+    await supabasePlayer.auth.signInWithOAuth({
+      provider: 'google',
+      options: { redirectTo: 'https://tournvia.netlify.app' }
+    })
+  }
+
   const handleLogout = async () => {
     await supabasePlayer.auth.signOut()
+    setProfile(null)
   }
 
   const navItems = [
     { to: '/', label: 'Home' },
     { to: '/tournaments', label: 'Tournaments' },
     { to: '/rules', label: 'Rules' },
-    { to: '/contact', label: 'Contact' }
+    { to: '/contact', label: 'Contact' },
   ]
+
+  // --- Profile badge logic ---
+  function ProfileBadge() {
+    // Still loading profile
+    if (profile === undefined) return null
+
+    // No profile submitted yet
+    if (profile === null) {
+      return (
+        <Link
+          to="/profile"
+          className="inline-flex items-center gap-2 rounded-full border border-red-500/50 bg-red-500/10 px-3 py-1 text-xs font-medium text-red-300 hover:border-red-400/70 transition-colors"
+        >
+          <span className="relative flex h-2 w-2">
+            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-red-400 opacity-75" />
+            <span className="relative inline-flex h-2 w-2 rounded-full bg-red-500" />
+          </span>
+          Submit your details
+        </Link>
+      )
+    }
+
+    // Submitted but pending approval
+    if (profile.status === 'pending') {
+      return (
+        <Link
+          to="/profile"
+          className="inline-flex items-center gap-2 rounded-full border border-amber-500/50 bg-amber-500/10 px-3 py-1 text-xs font-medium text-amber-300 hover:border-amber-400/70 transition-colors"
+        >
+          <span className="relative flex h-2 w-2">
+            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-amber-400 opacity-75" />
+            <span className="relative inline-flex h-2 w-2 rounded-full bg-amber-500" />
+          </span>
+          Awaiting approval
+        </Link>
+      )
+    }
+
+    // Rejected
+    if (profile.status === 'rejected') {
+      return (
+        <Link
+          to="/profile"
+          className="inline-flex items-center gap-2 rounded-full border border-red-500/50 bg-red-500/10 px-3 py-1 text-xs font-medium text-red-300 hover:border-red-400/70 transition-colors"
+        >
+          <span className="relative flex h-2 w-2">
+            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-red-400 opacity-75" />
+            <span className="relative inline-flex h-2 w-2 rounded-full bg-red-500" />
+          </span>
+          Profile rejected
+        </Link>
+      )
+    }
+
+    // Approved — show player name
+    return (
+      <Link
+        to="/profile"
+        className="inline-flex items-center gap-2 rounded-full border border-slate-700/80 bg-slate-900/60 px-3 py-1 text-xs font-medium text-slate-200 hover:border-sky-500/70 transition-colors"
+      >
+        <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-sky-500 text-[11px] font-semibold text-slate-950">
+          {profile.fullname?.[0]?.toUpperCase()}
+        </span>
+        <span className="max-w-[80px] truncate md:max-w-[120px]">{profile.fullname}</span>
+      </Link>
+    )
+  }
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-slate-950 via-slate-950 to-slate-900">
@@ -67,18 +143,10 @@ const handleLogin = async () => {
             ))}
           </div>
 
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2">
             {user ? (
               <>
-                <Link
-                  to="/profile"
-                  className="inline-flex items-center gap-2 rounded-full border border-slate-700/80 bg-slate-900/60 px-3 py-1 text-xs font-medium text-slate-200 hover:border-sky-500/70"
-                >
-                  <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-sky-500 text-[11px] font-semibold text-slate-950">
-                    {user.email?.[0]?.toUpperCase()}
-                  </span>
-                  <span className="max-w-[120px] truncate">{user.email}</span>
-                </Link>
+                <ProfileBadge />
                 <button onClick={handleLogout} className="btn-secondary text-xs">
                   Logout
                 </button>
