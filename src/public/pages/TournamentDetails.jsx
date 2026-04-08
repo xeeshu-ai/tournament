@@ -4,17 +4,13 @@ import { supabasePlayer } from '../../lib/supabaseClient'
 
 // ─── helpers ────────────────────────────────────────────────────────────────
 
-/**
- * How many teammate UID slots to show.
- * team_size can be an integer (1, 2, 4) OR a string ('solo','duo','squad','2v2').
- */
 function teammateCount(teamSize) {
   if (teamSize === null || teamSize === undefined) return 0
   const n = Number(teamSize)
   if (!isNaN(n)) {
     if (n <= 1) return 0
     if (n === 2) return 1
-    return 3 // 3, 4, or any larger squad
+    return 3
   }
   const s = String(teamSize).toLowerCase()
   if (s.includes('duo') || s.includes('2v2')) return 1
@@ -22,13 +18,11 @@ function teammateCount(teamSize) {
   return 0
 }
 
-/** Display label for the header subtitle */
 function modeBadgeLabel(t) {
   if (!t) return ''
   return [t.mode_label, t.format_label].filter(Boolean).join(' • ')
 }
 
-/** Human-readable team size label */
 function teamSizeLabel(teamSize) {
   if (teamSize === null || teamSize === undefined) return ''
   const n = Number(teamSize)
@@ -41,17 +35,30 @@ function teamSizeLabel(teamSize) {
   return String(teamSize)
 }
 
-// ─── Registration form ───────────────────────────────────────────────────────
+// Load Razorpay script once
+function loadRazorpayScript() {
+  return new Promise((resolve) => {
+    if (window.Razorpay) return resolve(true)
+    const script = document.createElement('script')
+    script.src = 'https://checkout.razorpay.com/v1/checkout.js'
+    script.onload = () => resolve(true)
+    script.onerror = () => resolve(false)
+    document.body.appendChild(script)
+  })
+}
+
+// ─── Registration + Payment form ─────────────────────────────────────────────
 
 function RegistrationForm({ tournament }) {
   const slots = teammateCount(tournament.team_size)
+  const entryFee = Number(tournament.entry_fee) || 0
 
+  const [step, setStep] = React.useState('form') // 'form' | 'paying' | 'success' | 'error'
   const [teamName, setTeamName] = React.useState('')
   const [hostUid, setHostUid] = React.useState('')
   const [mates, setMates] = React.useState(Array(Math.max(0, slots)).fill(''))
-  const [submitting, setSubmitting] = React.useState(false)
-  const [success, setSuccess] = React.useState(false)
   const [err, setErr] = React.useState(null)
+  const [paymentId, setPaymentId] = React.useState(null)
 
   function setMate(i, val) {
     setMates((prev) => prev.map((v, idx) => (idx === i ? val : v)))
@@ -61,50 +68,113 @@ function RegistrationForm({ tournament }) {
     e.preventDefault()
     setErr(null)
     if (!teamName.trim()) return setErr('Team name is required.')
-    if (!hostUid.trim()) return setErr('Your UID (host) is required.')
+    if (!hostUid.trim()) return setErr('Your UID is required.')
 
-    setSubmitting(true)
-    const teammateUids = mates.map((m) => m.trim() || null)
+    setStep('paying')
 
-    const { error } = await supabasePlayer
-      .from('tournament_registrations')
-      .insert({
-        tournament_id: tournament.id,
-        team_name: teamName.trim(),
-        host_uid: hostUid.trim(),
-        teammate_uid_1: teammateUids[0] ?? null,
-        teammate_uid_2: teammateUids[1] ?? null,
-        teammate_uid_3: teammateUids[2] ?? null,
-        status: 'pending',
+    try {
+      // 1. Load Razorpay SDK
+      const loaded = await loadRazorpayScript()
+      if (!loaded) throw new Error('Failed to load Razorpay. Check your internet connection.')
+
+      // 2. Call edge function to create order + reserve slot
+      const { data: { session } } = await supabasePlayer.auth.getSession()
+      const res = await fetch(
+        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/create-order`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${session?.access_token ?? import.meta.env.VITE_SUPABASE_ANON_KEY}`,
+          },
+          body: JSON.stringify({
+            tournament_id: tournament.id,
+            team_name: teamName.trim(),
+            host_uid: hostUid.trim(),
+            teammate_uid_1: mates[0]?.trim() || null,
+            teammate_uid_2: mates[1]?.trim() || null,
+            teammate_uid_3: mates[2]?.trim() || null,
+          }),
+        }
+      )
+
+      const orderData = await res.json()
+      if (!res.ok) throw new Error(orderData.error || 'Could not create order.')
+
+      // 3. Open Razorpay checkout popup
+      await new Promise((resolve, reject) => {
+        const options = {
+          key: import.meta.env.VITE_RAZORPAY_KEY_ID,
+          amount: orderData.amount,       // paise
+          currency: orderData.currency,
+          name: 'Tournvia',
+          description: tournament.title,
+          order_id: orderData.razorpay_order_id,
+          prefill: { contact: '', email: '' },
+          theme: { color: '#0ea5e9' },
+          handler: function (response) {
+            setPaymentId(response.razorpay_payment_id)
+            setStep('success')
+            resolve()
+          },
+          modal: {
+            ondismiss: function () {
+              // Player closed the popup without paying
+              setStep('form')
+              setErr('Payment cancelled. Your slot has been reserved for 10 minutes — complete payment to confirm.')
+              resolve()
+            },
+          },
+        }
+        const rzp = new window.Razorpay(options)
+        rzp.on('payment.failed', function (response) {
+          reject(new Error(response.error?.description || 'Payment failed.'))
+        })
+        rzp.open()
       })
 
-    setSubmitting(false)
-    if (error) {
-      console.error(error)
-      setErr('Registration failed. You may already be registered.')
-    } else {
-      setSuccess(true)
+    } catch (e) {
+      console.error(e)
+      setErr(e.message || 'Something went wrong. Please try again.')
+      setStep('form')
     }
   }
 
-  if (success) {
+  // ── Success screen ──
+  if (step === 'success') {
     return (
-      <div className="card space-y-2 text-xs text-slate-200">
-        <p className="text-sm font-semibold text-emerald-400">✅ Registered!</p>
+      <div className="card space-y-3 text-xs text-slate-200">
+        <div className="flex items-center gap-2">
+          <span className="text-xl">🎉</span>
+          <p className="text-sm font-semibold text-emerald-400">Registration Confirmed!</p>
+        </div>
         <p>
-          Your slot is <span className="font-semibold text-amber-300">pending</span> until
-          payment is confirmed. Contact the host on WhatsApp or Telegram to pay.
+          Your slot for <span className="font-semibold text-slate-50">{tournament.title}</span> is{' '}
+          <span className="font-semibold text-emerald-400">confirmed</span>.
         </p>
-        {slots > 0 && (
+        {paymentId && (
           <p className="text-[11px] text-slate-400">
-            You can add missing teammate UIDs later — before entry closing time —
-            by contacting the admin.
+            Payment ID: <span className="font-mono text-slate-300">{paymentId}</span>
           </p>
         )}
+        <p className="text-[11px] text-slate-400">
+          Room code and match schedule will be shared before the tournament starts. Keep an eye on your notifications.
+        </p>
       </div>
     )
   }
 
+  // ── Paying / loading screen ──
+  if (step === 'paying') {
+    return (
+      <div className="card flex flex-col items-center gap-3 py-8 text-xs text-slate-400">
+        <div className="h-6 w-6 animate-spin rounded-full border-2 border-slate-600 border-t-sky-400" />
+        <p>Opening payment…</p>
+      </div>
+    )
+  }
+
+  // ── Main form ──
   return (
     <form onSubmit={handleSubmit} className="card space-y-3 text-xs text-slate-200">
       <h2 className="text-sm font-semibold text-slate-50">Register for this tournament</h2>
@@ -127,7 +197,7 @@ function RegistrationForm({ tournament }) {
       {/* Host UID */}
       <div className="space-y-1">
         <label className="block text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400">
-          Your UID (host) <span className="text-red-400">*</span>
+          Your Free Fire UID <span className="text-red-400">*</span>
         </label>
         <input
           type="text"
@@ -139,13 +209,13 @@ function RegistrationForm({ tournament }) {
         />
       </div>
 
-      {/* Teammate UIDs — optional */}
+      {/* Teammate UIDs */}
       {slots > 0 && (
         <div className="space-y-2">
           <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400">
             Teammate UIDs{' '}
             <span className="normal-case font-normal text-slate-500">
-              (optional — can be added later before entry closes)
+              (optional — can be added before entry closes)
             </span>
           </p>
           {Array.from({ length: slots }).map((_, i) => (
@@ -161,19 +231,27 @@ function RegistrationForm({ tournament }) {
         </div>
       )}
 
-      {err && <p className="text-[11px] text-red-400">{err}</p>}
+      {err && (
+        <p className="rounded-lg bg-red-500/10 px-3 py-2 text-[11px] text-red-400">{err}</p>
+      )}
+
+      {/* Entry fee summary */}
+      <div className="flex items-center justify-between rounded-lg bg-slate-900/60 px-3 py-2 text-[11px]">
+        <span className="text-slate-400">Entry fee</span>
+        <span className="font-semibold text-slate-50">
+          {entryFee === 0 ? 'FREE' : `₹${entryFee}`}
+        </span>
+      </div>
 
       <button
         type="submit"
-        disabled={submitting}
-        className="btn-primary w-full text-xs disabled:opacity-60"
+        className="btn-primary w-full text-xs"
       >
-        {submitting ? 'Submitting…' : 'Register & pay later'}
+        {entryFee === 0 ? 'Register Now' : `Pay ₹${entryFee} & Register`}
       </button>
 
-      <p className="text-[11px] text-slate-400">
-        After registering, contact the host on WhatsApp or Telegram to complete
-        payment. Your slot will be confirmed once payment is verified.
+      <p className="text-[11px] text-slate-500">
+        Secure payment via Razorpay · UPI, cards, netbanking accepted
       </p>
     </form>
   )
@@ -216,6 +294,7 @@ export function TournamentDetails() {
 
   const isLong = tournament.type === 'long'
   const registrationOpen = tournament.registration_status === 'open'
+  const isFull = tournament.filled_slots >= tournament.max_slots
 
   return (
     <div className="space-y-6">
@@ -273,7 +352,7 @@ export function TournamentDetails() {
               <h2 className="text-sm font-semibold text-slate-50">Bracket</h2>
               {(tournament.long_brackets || []).length === 0 ? (
                 <p className="text-xs text-slate-400">
-                  Fixtures haven’t been generated yet. Check back after registration closes.
+                  Fixtures haven't been generated yet. Check back after registration closes.
                 </p>
               ) : (
                 (tournament.long_brackets || []).map((bracket) => (
@@ -311,48 +390,34 @@ export function TournamentDetails() {
         <aside className="space-y-4">
           <div className="card space-y-2 text-xs text-slate-200">
             <h2 className="text-sm font-semibold text-slate-50">Entry details</h2>
-            <p>Entry fee: ₹{tournament.entry_fee}</p>
-            <p>Slots: {tournament.filled_slots}/{tournament.max_slots}</p>
+            <p>Entry fee: <span className="font-semibold text-slate-50">₹{tournament.entry_fee}</span></p>
+            <p>
+              Slots:{' '}
+              <span className={isFull ? 'text-red-400 font-semibold' : 'text-emerald-400 font-semibold'}>
+                {tournament.filled_slots}/{tournament.max_slots}
+              </span>
+              {isFull && <span className="ml-1 text-red-400">· Full</span>}
+            </p>
             <p>Requirements: Level 45+, Diamond 1+, mobile only (no emulators).</p>
             <p className="text-[11px] text-amber-300">
               No refunds after joining. Make sure you can play at the scheduled time.
             </p>
           </div>
 
-          {registrationOpen ? (
-            <RegistrationForm tournament={tournament} />
-          ) : (
+          {/* Registration / payment block */}
+          {!registrationOpen ? (
             <div className="card space-y-2 text-xs text-slate-400">
               <h2 className="text-sm font-semibold text-slate-50">Registration</h2>
               <p>Entries are currently closed for this tournament.</p>
             </div>
-          )}
-
-          <div className="card space-y-3 text-xs text-slate-200">
-            <h2 className="text-sm font-semibold text-slate-50">Pay via WhatsApp / Telegram</h2>
-            <p>After registering, contact the host below to send your payment and get confirmed.</p>
-            <div className="flex flex-col gap-2">
-              <a
-                href={`https://wa.me/${import.meta.env.VITE_WHATSAPP_NUMBER || ''}`}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="btn-primary text-xs text-center"
-              >
-                WhatsApp
-              </a>
-              <a
-                href={`https://t.me/${import.meta.env.VITE_TELEGRAM_USERNAME || ''}`}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="btn-secondary text-xs text-center"
-              >
-                Telegram
-              </a>
+          ) : isFull ? (
+            <div className="card space-y-2 text-xs text-slate-400">
+              <h2 className="text-sm font-semibold text-slate-50">Registration</h2>
+              <p className="text-red-400">All slots are full. No more registrations.</p>
             </div>
-            <p className="text-[11px] text-slate-400">
-              Razorpay / UPI direct integration coming soon.
-            </p>
-          </div>
+          ) : (
+            <RegistrationForm tournament={tournament} />
+          )}
 
           {tournament.youtube_live_url && (
             <div className="card space-y-2 text-xs text-slate-200">
