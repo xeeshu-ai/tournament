@@ -1,33 +1,17 @@
 import React from 'react'
+import { usePlayer } from '../../lib/PlayerContext'
 import { supabasePlayer } from '../../lib/supabaseClient'
 
 export function Profile() {
-  const [user, setUser] = React.useState(null)
-  const [profile, setProfile] = React.useState(null)
-  const [loading, setLoading] = React.useState(true)
-  const [form, setForm] = React.useState({ ff_uid: '', full_name: '', phone: '' })
+  const { user, profile, refreshProfile } = usePlayer()
   const [submitStatus, setSubmitStatus] = React.useState(null)
+  const [form, setForm] = React.useState({ ff_uid: '', full_name: '', phone: '' })
 
-  React.useEffect(() => {
-    let ignore = false
-    async function load() {
-      const { data } = await supabasePlayer.auth.getUser()
-      const u = data?.user
-      setUser(u)
-      if (!u) { setLoading(false); return }
-      const { data: profileData } = await supabasePlayer
-        .from('players')
-        .select('*')
-        .eq('auth_id', u.id)
-        .maybeSingle()
-      if (!ignore) {
-        setProfile(profileData || null)
-        setLoading(false)
-      }
-    }
-    load()
-    return () => { ignore = true }
-  }, [])
+  // Still loading from context
+  const loading = user === undefined || profile === undefined
+
+  if (loading) return <p className="text-xs text-slate-400">Loading profile…</p>
+  if (!user) return <p className="text-xs text-slate-300">Login with Google to view your Tournvia profile.</p>
 
   const handleChange = (e) => {
     const { name, value } = e.target
@@ -36,13 +20,12 @@ export function Profile() {
 
   const handleRegister = async (e) => {
     e.preventDefault()
-    // Validate: no special characters in full_name
     if (!/^[a-zA-Z0-9 ]+$/.test(form.full_name)) {
       setSubmitStatus('name-error')
       return
     }
     setSubmitStatus('loading')
-    const { data: inserted, error } = await supabasePlayer
+    const { error } = await supabasePlayer
       .from('players')
       .insert({
         auth_id: user.id,
@@ -50,29 +33,25 @@ export function Profile() {
         ff_uid: form.ff_uid.trim(),
         full_name: form.full_name.trim(),
         phone: form.phone.trim() || null,
-        status: 'pending'
+        status: 'pending',
       })
-      .select()
-      .single()
+
     if (error) {
       console.error(error)
-      // uid already taken
       if (error.code === '23505') {
         setSubmitStatus('uid-taken')
       } else {
         setSubmitStatus('error')
       }
     } else {
-      setProfile(inserted)
+      // Refresh context so badge instantly turns yellow
+      await refreshProfile()
       setSubmitStatus('success')
     }
   }
 
-  if (loading) return <p className="text-xs text-slate-400">Loading profile…</p>
-  if (!user) return <p className="text-xs text-slate-300">Login with Google to view your Tournvia profile.</p>
-
-  // ── FIRST TIME: no profile row → show registration form ──
-  if (!profile || !profile.ff_uid) {
+  // ── FIRST TIME: no profile row yet ──
+  if (!profile) {
     return (
       <div className="mx-auto max-w-md space-y-5">
         <header className="space-y-1">
@@ -151,68 +130,61 @@ export function Profile() {
     )
   }
 
-  // ── RETURNING PLAYER: profile exists → show profile ──
-  if (submitStatus === 'success' || profile) {
-    const statusLabel = profile?.status || 'pending'
-    return (
-      <div className="space-y-6">
-        {submitStatus === 'success' && (
-          <div className="rounded-xl border border-emerald-400/20 bg-emerald-500/10 px-4 py-3 text-xs text-emerald-300">
-            ✅ Info submitted successfully. Verification in progress — usually takes 6 to 12 hours.
-          </div>
-        )}
+  // ── RETURNING PLAYER: profile exists ──
+  const statusLabel = profile.status || 'pending'
 
-        <header className="flex items-center gap-3">
-          <img
-            src={user.user_metadata?.avatar_url}
-            alt={profile.full_name}
-            className="h-12 w-12 rounded-full object-cover"
-            onError={(e) => {
-              e.target.style.display = 'none'
-            }}
-          />
-          <div>
-            <h1 className="text-xl font-semibold text-slate-50">{profile.full_name}</h1>
-            <p className="text-xs text-slate-400">{user.email}</p>
-          </div>
-        </header>
+  return (
+    <div className="space-y-6">
+      {submitStatus === 'success' && (
+        <div className="rounded-xl border border-emerald-400/20 bg-emerald-500/10 px-4 py-3 text-xs text-emerald-300">
+          ✅ Info submitted successfully. Verification in progress — usually takes 6 to 12 hours.
+        </div>
+      )}
 
-        <section className="grid gap-4 md:grid-cols-2">
-          <div className="card space-y-2 text-xs text-slate-200">
-            <h2 className="text-sm font-semibold text-slate-50">Account status</h2>
-            <p>
-              Status:{' '}
-              <span className={
-                statusLabel === 'approved' ? 'font-semibold text-emerald-400'
-                : statusLabel === 'rejected' ? 'font-semibold text-red-400'
-                : 'font-semibold text-amber-300'
-              }>
-                {statusLabel.charAt(0).toUpperCase() + statusLabel.slice(1)}
-              </span>
-            </p>
-            {statusLabel === 'pending' && (
-              <p className="text-[11px] text-amber-300">
-                Verification in progress — usually takes 6 to 12 hours.
-              </p>
-            )}
-            {statusLabel === 'rejected' && profile.rejection_reason && (
-              <p className="text-[11px] text-red-400">
-                Reason: {profile.rejection_reason}
-              </p>
-            )}
-            <p>Free Fire UID: <span className="text-slate-100">{profile.ff_uid}</span></p>
-            <p>Phone: <span className="text-slate-100">{profile.phone || 'Not added'}</span></p>
-          </div>
+      <header className="flex items-center gap-3">
+        <img
+          src={user.user_metadata?.avatar_url}
+          alt={profile.full_name}
+          className="h-12 w-12 rounded-full object-cover"
+          onError={(e) => { e.target.style.display = 'none' }}
+        />
+        <div>
+          <h1 className="text-xl font-semibold text-slate-50">{profile.full_name}</h1>
+          <p className="text-xs text-slate-400">{user.email}</p>
+        </div>
+      </header>
 
-          <div className="card space-y-3 text-xs text-slate-200">
-            <h2 className="text-sm font-semibold text-slate-50">Name change</h2>
-            <p>Once approved, your UID is locked forever. You can request a display name change that matches your in-game Free Fire name.</p>
-            <button className="btn-secondary text-xs" type="button" disabled>
-              Request name change (coming soon)
-            </button>
-          </div>
-        </section>
-      </div>
-    )
-  }
+      <section className="grid gap-4 md:grid-cols-2">
+        <div className="card space-y-2 text-xs text-slate-200">
+          <h2 className="text-sm font-semibold text-slate-50">Account status</h2>
+          <p>
+            Status:{' '}
+            <span className={
+              statusLabel === 'approved' ? 'font-semibold text-emerald-400'
+              : statusLabel === 'rejected' ? 'font-semibold text-red-400'
+              : 'font-semibold text-amber-300'
+            }>
+              {statusLabel.charAt(0).toUpperCase() + statusLabel.slice(1)}
+            </span>
+          </p>
+          {statusLabel === 'pending' && (
+            <p className="text-[11px] text-amber-300">Verification in progress — usually takes 6 to 12 hours.</p>
+          )}
+          {statusLabel === 'rejected' && profile.rejection_reason && (
+            <p className="text-[11px] text-red-400">Reason: {profile.rejection_reason}</p>
+          )}
+          <p>Free Fire UID: <span className="text-slate-100">{profile.ff_uid}</span></p>
+          <p>Phone: <span className="text-slate-100">{profile.phone || 'Not added'}</span></p>
+        </div>
+
+        <div className="card space-y-3 text-xs text-slate-200">
+          <h2 className="text-sm font-semibold text-slate-50">Name change</h2>
+          <p>Once approved, your UID is locked forever. You can request a display name change that matches your in-game Free Fire name.</p>
+          <button className="btn-secondary text-xs" type="button" disabled>
+            Request name change (coming soon)
+          </button>
+        </div>
+      </section>
+    </div>
+  )
 }
