@@ -4,20 +4,41 @@ import { supabasePlayer } from '../../lib/supabaseClient'
 
 // ─── helpers ────────────────────────────────────────────────────────────────
 
-/** How many teammate UID slots to show based on team_size string */
+/**
+ * How many teammate UID slots to show.
+ * team_size can be an integer (1, 2, 4) OR a string ('solo','duo','squad','2v2').
+ */
 function teammateCount(teamSize) {
-  if (!teamSize) return 0
-  const s = teamSize.toLowerCase()
-  if (s.includes('duo') || s === '2' || s.includes('2v2')) return 1
-  if (s.includes('squad') || s === '4' || s === '3') return 3
+  if (teamSize === null || teamSize === undefined) return 0
+  const n = Number(teamSize)
+  if (!isNaN(n)) {
+    if (n <= 1) return 0
+    if (n === 2) return 1
+    return 3 // 3, 4, or any larger squad
+  }
+  const s = String(teamSize).toLowerCase()
+  if (s.includes('duo') || s.includes('2v2')) return 1
+  if (s.includes('squad') || s === '3' || s === '4') return 3
   return 0
 }
 
-/** Build display label for mode badge on the card */
+/** Display label for the header subtitle */
 function modeBadgeLabel(t) {
   if (!t) return ''
-  const parts = [t.mode_label, t.format_label].filter(Boolean)
-  return parts.join(' • ')
+  return [t.mode_label, t.format_label].filter(Boolean).join(' • ')
+}
+
+/** Human-readable team size label */
+function teamSizeLabel(teamSize) {
+  if (teamSize === null || teamSize === undefined) return ''
+  const n = Number(teamSize)
+  if (!isNaN(n)) {
+    if (n <= 1) return 'Solo'
+    if (n === 2) return 'Duo'
+    if (n === 3) return 'Trio'
+    if (n >= 4) return 'Squad'
+  }
+  return String(teamSize)
 }
 
 // ─── Registration form ───────────────────────────────────────────────────────
@@ -27,7 +48,7 @@ function RegistrationForm({ tournament }) {
 
   const [teamName, setTeamName] = React.useState('')
   const [hostUid, setHostUid] = React.useState('')
-  const [mates, setMates] = React.useState(Array(slots).fill(''))
+  const [mates, setMates] = React.useState(Array(Math.max(0, slots)).fill(''))
   const [submitting, setSubmitting] = React.useState(false)
   const [success, setSuccess] = React.useState(false)
   const [err, setErr] = React.useState(null)
@@ -39,13 +60,10 @@ function RegistrationForm({ tournament }) {
   async function handleSubmit(e) {
     e.preventDefault()
     setErr(null)
-
     if (!teamName.trim()) return setErr('Team name is required.')
     if (!hostUid.trim()) return setErr('Your UID (host) is required.')
 
     setSubmitting(true)
-
-    // Build payload — teammate UIDs are optional, store as array (nulls for empties)
     const teammateUids = mates.map((m) => m.trim() || null)
 
     const { error } = await supabasePlayer
@@ -61,7 +79,6 @@ function RegistrationForm({ tournament }) {
       })
 
     setSubmitting(false)
-
     if (error) {
       console.error(error)
       setErr('Registration failed. You may already be registered.')
@@ -75,12 +92,13 @@ function RegistrationForm({ tournament }) {
       <div className="card space-y-2 text-xs text-slate-200">
         <p className="text-sm font-semibold text-emerald-400">✅ Registered!</p>
         <p>
-          Your slot is <span className="font-semibold text-amber-300">pending</span> until payment is confirmed.
-          Contact the host on WhatsApp or Telegram to pay and get confirmed.
+          Your slot is <span className="font-semibold text-amber-300">pending</span> until
+          payment is confirmed. Contact the host on WhatsApp or Telegram to pay.
         </p>
         {slots > 0 && (
           <p className="text-[11px] text-slate-400">
-            You can add missing teammate UIDs later — before entry closing time — by contacting the admin.
+            You can add missing teammate UIDs later — before entry closing time —
+            by contacting the admin.
           </p>
         )}
       </div>
@@ -126,13 +144,15 @@ function RegistrationForm({ tournament }) {
         <div className="space-y-2">
           <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400">
             Teammate UIDs{' '}
-            <span className="normal-case font-normal text-slate-500">(optional — can be added later before entry closes)</span>
+            <span className="normal-case font-normal text-slate-500">
+              (optional — can be added later before entry closes)
+            </span>
           </p>
           {Array.from({ length: slots }).map((_, i) => (
             <input
               key={i}
               type="text"
-              value={mates[i]}
+              value={mates[i] ?? ''}
               onChange={(e) => setMate(i, e.target.value)}
               placeholder={`Teammate ${i + 1} UID (optional)`}
               className="w-full rounded-lg bg-slate-900 px-3 py-2 text-xs text-slate-100 placeholder-slate-500 outline-none ring-1 ring-slate-700 focus:ring-sky-500"
@@ -152,7 +172,8 @@ function RegistrationForm({ tournament }) {
       </button>
 
       <p className="text-[11px] text-slate-400">
-        After registering, contact the host on WhatsApp or Telegram to complete payment. Your slot will be confirmed once payment is verified.
+        After registering, contact the host on WhatsApp or Telegram to complete
+        payment. Your slot will be confirmed once payment is verified.
       </p>
     </form>
   )
@@ -190,7 +211,8 @@ export function TournamentDetails() {
   }, [id])
 
   if (loading) return <p className="text-xs text-slate-400">Loading tournament…</p>
-  if (error || !tournament) return <p className="text-xs text-red-400">{error || 'Tournament not found.'}</p>
+  if (error || !tournament)
+    return <p className="text-xs text-red-400">{error || 'Tournament not found.'}</p>
 
   const isLong = tournament.type === 'long'
   const registrationOpen = tournament.registration_status === 'open'
@@ -203,7 +225,7 @@ export function TournamentDetails() {
         <p className="text-xs text-slate-400">
           {modeBadgeLabel(tournament)}
           {tournament.map ? ` • ${tournament.map}` : ''}
-          {tournament.team_size ? ` • ${tournament.team_size}` : ''}
+          {tournament.team_size ? ` • ${teamSizeLabel(tournament.team_size)}` : ''}
         </p>
       </header>
 
@@ -216,7 +238,7 @@ export function TournamentDetails() {
             {tournament.points_table && (
               <div className="mt-3 rounded-xl bg-slate-900/80 p-3">
                 <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">
-                  Points table (admin defined)
+                  Points table
                 </p>
                 <p className="mt-1 whitespace-pre-line text-xs text-slate-200">
                   {tournament.points_table}
@@ -251,7 +273,7 @@ export function TournamentDetails() {
               <h2 className="text-sm font-semibold text-slate-50">Bracket</h2>
               {(tournament.long_brackets || []).length === 0 ? (
                 <p className="text-xs text-slate-400">
-                  Fixtures haven't been generated yet. Check back after registration closes.
+                  Fixtures haven’t been generated yet. Check back after registration closes.
                 </p>
               ) : (
                 (tournament.long_brackets || []).map((bracket) => (
@@ -290,16 +312,13 @@ export function TournamentDetails() {
           <div className="card space-y-2 text-xs text-slate-200">
             <h2 className="text-sm font-semibold text-slate-50">Entry details</h2>
             <p>Entry fee: ₹{tournament.entry_fee}</p>
-            <p>
-              Slots: {tournament.filled_slots}/{tournament.max_slots}
-            </p>
+            <p>Slots: {tournament.filled_slots}/{tournament.max_slots}</p>
             <p>Requirements: Level 45+, Diamond 1+, mobile only (no emulators).</p>
             <p className="text-[11px] text-amber-300">
               No refunds after joining. Make sure you can play at the scheduled time.
             </p>
           </div>
 
-          {/* Registration form — shown only when entries are open */}
           {registrationOpen ? (
             <RegistrationForm tournament={tournament} />
           ) : (
@@ -309,12 +328,9 @@ export function TournamentDetails() {
             </div>
           )}
 
-          {/* WhatsApp / Telegram payment links */}
           <div className="card space-y-3 text-xs text-slate-200">
             <h2 className="text-sm font-semibold text-slate-50">Pay via WhatsApp / Telegram</h2>
-            <p>
-              After registering, contact the host below to send your payment and get confirmed.
-            </p>
+            <p>After registering, contact the host below to send your payment and get confirmed.</p>
             <div className="flex flex-col gap-2">
               <a
                 href={`https://wa.me/${import.meta.env.VITE_WHATSAPP_NUMBER || ''}`}
@@ -342,7 +358,8 @@ export function TournamentDetails() {
             <div className="card space-y-2 text-xs text-slate-200">
               <h2 className="text-sm font-semibold text-slate-50">Watch live on YouTube</h2>
               <p>
-                Finals and featured matches are streamed live. Subscribe so you don&apos;t miss clutch moments.
+                Finals and featured matches are streamed live. Subscribe so you don&apos;t miss
+                clutch moments.
               </p>
               <a
                 href={tournament.youtube_live_url}

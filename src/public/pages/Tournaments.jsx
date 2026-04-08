@@ -27,9 +27,7 @@ export function Tournaments() {
       }
     }
     load()
-    return () => {
-      ignore = true 
-    }
+    return () => { ignore = true }
   }, [])
 
   return (
@@ -38,7 +36,8 @@ export function Tournaments() {
         <div>
           <h1 className="text-2xl font-semibold tracking-tight text-slate-50">Tournaments</h1>
           <p className="mt-1 text-xs text-slate-400">
-            Single match and long knockout tournaments. Slots are first come first served once payment is confirmed.
+            Single match and long knockout tournaments. Slots are first come first served once
+            payment is confirmed.
           </p>
         </div>
       </header>
@@ -78,13 +77,12 @@ export function Tournaments() {
                 </span>
               </div>
               <h2 className="mt-3 text-sm font-semibold text-slate-50">{t.title}</h2>
-              <p className="mt-1 text-xs text-slate-300 line-clamp-2">{t.prize_summary}</p>
+              {/* prize_text is the correct column — prize_summary does not exist */}
+              <p className="mt-1 text-xs text-slate-300 line-clamp-2">{t.prize_text}</p>
               <div className="mt-3 flex flex-wrap items-center justify-between gap-3 text-[11px] text-slate-300">
                 <div className="flex flex-wrap items-center gap-3">
                   <span>Entry fee: ₹{t.entry_fee}</span>
-                  <span>
-                    Slots: {t.filled_slots}/{t.max_slots}
-                  </span>
+                  <span>Slots: {t.filled_slots}/{t.max_slots}</span>
                   <span>Req: Level 45+, Diamond 1+</span>
                 </div>
                 {t.youtube_live_url && (
