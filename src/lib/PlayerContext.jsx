@@ -12,7 +12,7 @@ export function PlayerProvider({ children }) {
     if (!u) { setProfile(null); return }
     const { data } = await supabasePlayer
       .from('players')
-      .select('full_name, status')
+      .select('full_name, ff_uid, phone, status, rejection_reason')
       .eq('auth_id', u.id)
       .maybeSingle()
     setProfile(data ?? null)
