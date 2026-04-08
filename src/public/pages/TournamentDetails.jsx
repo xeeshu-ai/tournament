@@ -3,6 +3,10 @@ import { useParams } from 'react-router-dom'
 import { supabasePlayer } from '../../lib/supabaseClient'
 import { usePlayer } from '../../lib/PlayerContext'
 
+// ─── Razorpay key ─────────────────────────────────────────────────
+// Falls back to hardcoded test key if env var is missing
+const RZP_KEY = import.meta.env.VITE_RAZORPAY_KEY_ID || 'rzp_test_SaUtkNyiEDfrAm'
+
 // ─── helpers ──────────────────────────────────────────────────────
 
 function teammateCount(teamSize) {
@@ -47,7 +51,7 @@ function loadRazorpayScript() {
   })
 }
 
-// ─── Registration + Payment form ───────────────────────────────────────────
+// ─── Registration + Payment form ──────────────────────────────────
 
 function RegistrationForm({ tournament }) {
   const { user, profile } = usePlayer()
@@ -56,15 +60,12 @@ function RegistrationForm({ tournament }) {
 
   const [step, setStep] = React.useState('form') // 'form' | 'paying' | 'success'
   const [teamName, setTeamName] = React.useState('')
-  const [hostUid, setHostUid] = React.useState('')
   const [mates, setMates] = React.useState(Array(Math.max(0, slots)).fill(''))
   const [err, setErr] = React.useState(null)
   const [paymentId, setPaymentId] = React.useState(null)
 
-  // Pre-fill host UID from profile
-  React.useEffect(() => {
-    if (profile?.ff_uid) setHostUid(profile.ff_uid)
-  }, [profile])
+  // Host UID always comes from the approved profile — not editable
+  const hostUid = profile?.ff_uid || ''
 
   function setMate(i, val) {
     setMates((prev) => prev.map((v, idx) => (idx === i ? val : v)))
@@ -97,7 +98,7 @@ function RegistrationForm({ tournament }) {
     )
   }
 
-  // ── Guard: profile pending / rejected ──
+  // ── Guard: profile pending ──
   if (profile.status === 'pending') {
     return (
       <div className="card space-y-2 text-xs">
@@ -109,12 +110,13 @@ function RegistrationForm({ tournament }) {
     )
   }
 
+  // ── Guard: profile rejected ──
   if (profile.status === 'rejected') {
     return (
       <div className="card space-y-2 text-xs">
         <h2 className="text-sm font-semibold text-slate-50">Register for this tournament</h2>
         <div className="rounded-lg bg-red-500/10 px-3 py-2 text-[11px] text-red-400">
-          ❌ Your profile was rejected. Contact support to resolve this.
+          ❌ Your profile was rejected. <a href="/profile" className="underline">Resubmit your profile</a> to fix this.
         </div>
       </div>
     )
@@ -124,7 +126,7 @@ function RegistrationForm({ tournament }) {
     e.preventDefault()
     setErr(null)
     if (!teamName.trim()) return setErr('Team name is required.')
-    if (!hostUid.trim()) return setErr('Your UID is required.')
+    if (!hostUid) return setErr('Could not read your UID from profile. Please refresh.')
 
     setStep('paying')
 
@@ -148,7 +150,7 @@ function RegistrationForm({ tournament }) {
           body: JSON.stringify({
             tournament_id: tournament.id,
             team_name: teamName.trim(),
-            host_uid: hostUid.trim(),
+            host_uid: hostUid,
             teammate_uid_1: mates[0]?.trim() || null,
             teammate_uid_2: mates[1]?.trim() || null,
             teammate_uid_3: mates[2]?.trim() || null,
@@ -162,7 +164,7 @@ function RegistrationForm({ tournament }) {
       // Open Razorpay popup
       await new Promise((resolve, reject) => {
         const options = {
-          key: import.meta.env.VITE_RAZORPAY_KEY_ID,
+          key: RZP_KEY,
           amount: orderData.amount,
           currency: orderData.currency,
           name: 'Tournvia',
@@ -171,7 +173,7 @@ function RegistrationForm({ tournament }) {
           prefill: {
             name: orderData.player_name || '',
             email: orderData.player_email || '',
-            contact: '',
+            contact: profile.phone || '',
           },
           theme: { color: '#0ea5e9' },
           handler: function (response) {
@@ -240,6 +242,18 @@ function RegistrationForm({ tournament }) {
     <form onSubmit={handleSubmit} className="card space-y-3 text-xs text-slate-200">
       <h2 className="text-sm font-semibold text-slate-50">Register for this tournament</h2>
 
+      {/* Your UID — readonly, pulled from approved profile */}
+      <div className="space-y-1">
+        <label className="block text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400">
+          Your Free Fire UID
+        </label>
+        <div className="flex items-center gap-2 rounded-lg bg-slate-900/80 px-3 py-2 ring-1 ring-slate-700">
+          <span className="flex-1 text-slate-100">{hostUid || '...'}</span>
+          <span className="text-[10px] rounded-full bg-emerald-500/15 px-2 py-0.5 text-emerald-400">verified ✓</span>
+        </div>
+        <p className="text-[11px] text-slate-500">Auto-filled from your approved profile.</p>
+      </div>
+
       <div className="space-y-1">
         <label className="block text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400">
           Team name <span className="text-red-400">*</span>
@@ -249,20 +263,6 @@ function RegistrationForm({ tournament }) {
           value={teamName}
           onChange={(e) => setTeamName(e.target.value)}
           placeholder="e.g. Team Blaze"
-          className="w-full rounded-lg bg-slate-900 px-3 py-2 text-xs text-slate-100 placeholder-slate-500 outline-none ring-1 ring-slate-700 focus:ring-sky-500"
-          required
-        />
-      </div>
-
-      <div className="space-y-1">
-        <label className="block text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400">
-          Your Free Fire UID <span className="text-red-400">*</span>
-        </label>
-        <input
-          type="text"
-          value={hostUid}
-          onChange={(e) => setHostUid(e.target.value)}
-          placeholder="Your Free Fire UID"
           className="w-full rounded-lg bg-slate-900 px-3 py-2 text-xs text-slate-100 placeholder-slate-500 outline-none ring-1 ring-slate-700 focus:ring-sky-500"
           required
         />
@@ -309,7 +309,7 @@ function RegistrationForm({ tournament }) {
   )
 }
 
-// ─── Main page ────────────────────────────────────────────────────────────
+// ─── Main page ────────────────────────────────────────────────────
 
 export function TournamentDetails() {
   const { id } = useParams()
