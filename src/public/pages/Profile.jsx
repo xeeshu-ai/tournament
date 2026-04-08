@@ -6,9 +6,20 @@ export function Profile() {
   const { user, profile, refreshProfile } = usePlayer()
   const [submitStatus, setSubmitStatus] = React.useState(null)
   const [form, setForm] = React.useState({ ff_uid: '', full_name: '', phone: '' })
+  const [resubmitting, setResubmitting] = React.useState(false)
 
-  // Still loading from context
   const loading = user === undefined || profile === undefined
+
+  // Pre-fill form with existing data when rejected
+  React.useEffect(() => {
+    if (profile && profile.status === 'rejected') {
+      setForm({
+        ff_uid: profile.ff_uid || '',
+        full_name: profile.full_name || '',
+        phone: profile.phone || '',
+      })
+    }
+  }, [profile])
 
   if (loading) return <p className="text-xs text-slate-400">Loading profile…</p>
   if (!user) return <p className="text-xs text-slate-300">Login with Google to view your Tournvia profile.</p>
@@ -18,6 +29,7 @@ export function Profile() {
     setForm((f) => ({ ...f, [name]: value }))
   }
 
+  // ── First time registration ──
   const handleRegister = async (e) => {
     e.preventDefault()
     if (!/^[a-zA-Z0-9 ]+$/.test(form.full_name)) {
@@ -38,19 +50,44 @@ export function Profile() {
 
     if (error) {
       console.error(error)
-      if (error.code === '23505') {
-        setSubmitStatus('uid-taken')
-      } else {
-        setSubmitStatus('error')
-      }
+      if (error.code === '23505') setSubmitStatus('uid-taken')
+      else setSubmitStatus('error')
     } else {
-      // Refresh context so badge instantly turns yellow
       await refreshProfile()
       setSubmitStatus('success')
     }
   }
 
-  // ── FIRST TIME: no profile row yet ──
+  // ── Resubmit after rejection ──
+  const handleResubmit = async (e) => {
+    e.preventDefault()
+    if (!/^[a-zA-Z0-9 ]+$/.test(form.full_name)) {
+      setSubmitStatus('name-error')
+      return
+    }
+    setSubmitStatus('loading')
+    const { error } = await supabasePlayer
+      .from('players')
+      .update({
+        ff_uid: form.ff_uid.trim(),
+        full_name: form.full_name.trim(),
+        phone: form.phone.trim() || null,
+        status: 'pending',
+        rejection_reason: null,
+      })
+      .eq('auth_id', user.id)
+
+    if (error) {
+      console.error(error)
+      setSubmitStatus('error')
+    } else {
+      await refreshProfile()
+      setSubmitStatus('resubmit-success')
+      setResubmitting(false)
+    }
+  }
+
+  // ── No profile yet ──
   if (!profile) {
     return (
       <div className="mx-auto max-w-md space-y-5">
@@ -65,74 +102,79 @@ export function Profile() {
         <form onSubmit={handleRegister} className="card space-y-4 text-xs text-slate-200">
           <div>
             <label className="label" htmlFor="ff_uid">Free Fire UID <span className="text-red-400">*</span></label>
-            <input
-              id="ff_uid"
-              name="ff_uid"
-              className="input"
-              value={form.ff_uid}
-              onChange={handleChange}
-              placeholder="Enter your in-game UID"
-              required
-            />
-            <p className="mt-1 text-[11px] text-slate-500">Your UID is locked permanently once approved. Double-check before submitting.</p>
+            <input id="ff_uid" name="ff_uid" className="input" value={form.ff_uid} onChange={handleChange} placeholder="Enter your in-game UID" required />
+            <p className="mt-1 text-[11px] text-slate-500">Double-check before submitting — your UID is locked once approved.</p>
           </div>
-
           <div>
             <label className="label" htmlFor="full_name">Full name <span className="text-red-400">*</span></label>
-            <input
-              id="full_name"
-              name="full_name"
-              className="input"
-              value={form.full_name}
-              onChange={handleChange}
-              placeholder="Your in-game display name"
-              required
-            />
-            <p className="mt-1 text-[11px] text-slate-500">Letters and numbers only — no special characters or symbols.</p>
+            <input id="full_name" name="full_name" className="input" value={form.full_name} onChange={handleChange} placeholder="Your in-game display name" required />
+            <p className="mt-1 text-[11px] text-slate-500">Letters and numbers only.</p>
           </div>
-
           <div>
             <label className="label" htmlFor="phone">Phone number <span className="text-slate-500">(optional)</span></label>
-            <input
-              id="phone"
-              name="phone"
-              type="tel"
-              className="input"
-              value={form.phone}
-              onChange={handleChange}
-              placeholder="+91 XXXXX XXXXX"
-            />
+            <input id="phone" name="phone" type="tel" className="input" value={form.phone} onChange={handleChange} placeholder="+91 XXXXX XXXXX" />
           </div>
-
           <div className="rounded-xl border border-amber-400/20 bg-amber-500/10 px-3 py-2 text-[11px] text-amber-300">
-            ⚠️ Make sure your Free Fire account is Level 45+ and Diamond 1 rank or above. Accounts that don't meet requirements will be rejected.
+            ⚠️ Make sure your Free Fire account is Level 45+ and Diamond 1 rank or above.
           </div>
-
-          <button
-            type="submit"
-            className="btn-primary w-full text-xs"
-            disabled={submitStatus === 'loading'}
-          >
+          <button type="submit" className="btn-primary w-full text-xs" disabled={submitStatus === 'loading'}>
             {submitStatus === 'loading' ? 'Submitting…' : 'Submit for verification'}
           </button>
-
-          {submitStatus === 'name-error' && (
-            <p className="text-[11px] text-red-400">Name cannot contain special characters or symbols.</p>
-          )}
-          {submitStatus === 'uid-taken' && (
-            <p className="text-[11px] text-red-400">This Free Fire UID is already registered. If this is your UID, contact support.</p>
-          )}
-          {submitStatus === 'error' && (
-            <p className="text-[11px] text-red-400">Something went wrong. Please try again.</p>
-          )}
+          {submitStatus === 'name-error' && <p className="text-[11px] text-red-400">Name cannot contain special characters.</p>}
+          {submitStatus === 'uid-taken' && <p className="text-[11px] text-red-400">This UID is already registered. Contact support if this is yours.</p>}
+          {submitStatus === 'error' && <p className="text-[11px] text-red-400">Something went wrong. Please try again.</p>}
         </form>
       </div>
     )
   }
 
-  // ── RETURNING PLAYER: profile exists ──
   const statusLabel = profile.status || 'pending'
 
+  // ── Rejected: show resubmit form ──
+  if (statusLabel === 'rejected') {
+    return (
+      <div className="mx-auto max-w-md space-y-5">
+        <header className="space-y-1">
+          <h1 className="text-xl font-semibold text-slate-50">Profile Rejected</h1>
+          {profile.rejection_reason && (
+            <div className="rounded-xl border border-red-400/20 bg-red-500/10 px-3 py-2 text-[11px] text-red-400">
+              ❌ Reason: {profile.rejection_reason}
+            </div>
+          )}
+          <p className="text-xs text-slate-400">Fix the issue above and resubmit your details for re-verification.</p>
+        </header>
+
+        {submitStatus === 'resubmit-success' ? (
+          <div className="card text-xs text-emerald-400">
+            ✅ Resubmitted successfully! Verification usually takes 6–12 hours.
+          </div>
+        ) : (
+          <form onSubmit={handleResubmit} className="card space-y-4 text-xs text-slate-200">
+            <div>
+              <label className="label" htmlFor="ff_uid">Free Fire UID <span className="text-red-400">*</span></label>
+              <input id="ff_uid" name="ff_uid" className="input" value={form.ff_uid} onChange={handleChange} placeholder="Enter your in-game UID" required />
+            </div>
+            <div>
+              <label className="label" htmlFor="full_name">Full name <span className="text-red-400">*</span></label>
+              <input id="full_name" name="full_name" className="input" value={form.full_name} onChange={handleChange} placeholder="Your in-game display name" required />
+              <p className="mt-1 text-[11px] text-slate-500">Letters and numbers only.</p>
+            </div>
+            <div>
+              <label className="label" htmlFor="phone">Phone number <span className="text-slate-500">(optional)</span></label>
+              <input id="phone" name="phone" type="tel" className="input" value={form.phone} onChange={handleChange} placeholder="+91 XXXXX XXXXX" />
+            </div>
+            <button type="submit" className="btn-primary w-full text-xs" disabled={submitStatus === 'loading'}>
+              {submitStatus === 'loading' ? 'Resubmitting…' : 'Resubmit for verification'}
+            </button>
+            {submitStatus === 'name-error' && <p className="text-[11px] text-red-400">Name cannot contain special characters.</p>}
+            {submitStatus === 'error' && <p className="text-[11px] text-red-400">Something went wrong. Please try again.</p>}
+          </form>
+        )}
+      </div>
+    )
+  }
+
+  // ── Approved / Pending ──
   return (
     <div className="space-y-6">
       {submitStatus === 'success' && (
@@ -161,7 +203,6 @@ export function Profile() {
             Status:{' '}
             <span className={
               statusLabel === 'approved' ? 'font-semibold text-emerald-400'
-              : statusLabel === 'rejected' ? 'font-semibold text-red-400'
               : 'font-semibold text-amber-300'
             }>
               {statusLabel.charAt(0).toUpperCase() + statusLabel.slice(1)}
@@ -169,9 +210,6 @@ export function Profile() {
           </p>
           {statusLabel === 'pending' && (
             <p className="text-[11px] text-amber-300">Verification in progress — usually takes 6 to 12 hours.</p>
-          )}
-          {statusLabel === 'rejected' && profile.rejection_reason && (
-            <p className="text-[11px] text-red-400">Reason: {profile.rejection_reason}</p>
           )}
           <p>Free Fire UID: <span className="text-slate-100">{profile.ff_uid}</span></p>
           <p>Phone: <span className="text-slate-100">{profile.phone || 'Not added'}</span></p>
