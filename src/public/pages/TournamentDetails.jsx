@@ -82,6 +82,9 @@ function findUidConflict(registrations, uidsToCheck) {
       reg.teammate_uid_1,
       reg.teammate_uid_2,
       reg.teammate_uid_3,
+      reg.member_2_uid,
+      reg.member_3_uid,
+      reg.member_4_uid,
     ].filter(Boolean).map(String)
     for (const uid of uids) {
       if (takenUids.includes(uid)) return uid
@@ -90,12 +93,11 @@ function findUidConflict(registrations, uidsToCheck) {
   return null
 }
 
-// ─── Already Registered Panel (with teammate editor) ──────────────
+// ─── Already Registered Panel (with teammate editor + room code) ───
 
 function AlreadyRegisteredPanel({ registration: initialReg, tournament, onUpdated }) {
   const slots = teammateCount(tournament.team_size)
 
-  // ── Local copy of the registration so view updates after save/reload ──
   const [reg, setReg] = React.useState(initialReg)
   const [editing, setEditing] = React.useState(false)
   const [teamName, setTeamName] = React.useState(initialReg.team_name || '')
@@ -108,10 +110,29 @@ function AlreadyRegisteredPanel({ registration: initialReg, tournament, onUpdate
   const [saveErr, setSaveErr] = React.useState(null)
   const [saveOk, setSaveOk] = React.useState(false)
 
-  // Sync local state whenever the parent re-fetches and passes a fresh prop
+  // Room code state
+  const [roomCode, setRoomCode] = React.useState(null) // { room_id, room_password }
+
+  // Fetch room code if reveal_at has passed
+  React.useEffect(() => {
+    async function fetchRoomCode() {
+      const now = new Date().toISOString()
+      const { data } = await supabasePlayer
+        .from('room_codes')
+        .select('room_id, room_password, reveal_at')
+        .eq('tournament_id', tournament.id)
+        .lte('reveal_at', now)
+        .order('reveal_at', { ascending: false })
+        .limit(1)
+        .maybeSingle()
+      if (data) setRoomCode(data)
+    }
+    fetchRoomCode()
+  }, [tournament.id])
+
+  // Sync local state whenever parent re-fetches
   React.useEffect(() => {
     setReg(initialReg)
-    // Only update edit fields if not currently editing (don't clobber user input)
     if (!editing) {
       setTeamName(initialReg.team_name || '')
       setMates([
@@ -122,7 +143,8 @@ function AlreadyRegisteredPanel({ registration: initialReg, tournament, onUpdate
     }
   }, [initialReg])
 
-  const closesAt = tournament.registration_closes_at
+  // ── Use correct DB column: entry_closing_time ──
+  const closesAt = tournament.entry_closing_time
   const editable =
     tournament.registration_status === 'open' &&
     (!closesAt || new Date() < new Date(closesAt))
@@ -136,7 +158,6 @@ function AlreadyRegisteredPanel({ registration: initialReg, tournament, onUpdate
     setSaveErr(null)
     setSaveOk(false)
 
-    // ── Duplicate UID check (frontend) ──
     const otherRegs = (tournament.tournament_registrations || []).filter(
       (r) => r.id !== reg.id
     )
@@ -145,7 +166,7 @@ function AlreadyRegisteredPanel({ registration: initialReg, tournament, onUpdate
     const conflictUid = findUidConflict(otherRegs, newMates)
     if (conflictUid) {
       setSaveErr(
-        `❌ UID "${conflictUid}" is already registered in this tournament (as host or teammate in another team). Remove it and try again.`
+        `❌ UID "${conflictUid}" is already registered in this tournament. Remove it and try again.`
       )
       setSaving(false)
       return
@@ -176,7 +197,6 @@ function AlreadyRegisteredPanel({ registration: initialReg, tournament, onUpdate
 
       if (error) throw new Error(error.message)
 
-      // Immediately update local reg so view reflects changes without waiting for parent reload
       setReg((prev) => ({
         ...prev,
         team_name: teamName.trim() || prev.team_name,
@@ -231,6 +251,22 @@ function AlreadyRegisteredPanel({ registration: initialReg, tournament, onUpdate
           </div>
         )}
       </div>
+
+      {/* Room code — shown once reveal_at has passed */}
+      {roomCode && (
+        <div className="rounded-lg bg-emerald-500/10 px-3 py-3 space-y-2 ring-1 ring-emerald-700">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-emerald-400">🔐 Room Details</p>
+          <div className="flex items-center justify-between">
+            <span className="text-slate-400">Room ID</span>
+            <span className="font-mono font-semibold text-slate-50">{roomCode.room_id}</span>
+          </div>
+          <div className="flex items-center justify-between">
+            <span className="text-slate-400">Password</span>
+            <span className="font-mono font-semibold text-slate-50">{roomCode.room_password}</span>
+          </div>
+          <p className="text-[10px] text-emerald-400/70">Join the room on time. Late joiners may lose their slot.</p>
+        </div>
+      )}
 
       {/* Team details — view mode */}
       {!editing && (
@@ -303,7 +339,7 @@ function AlreadyRegisteredPanel({ registration: initialReg, tournament, onUpdate
                 />
               ))}
               <p className="text-[10px] text-slate-500">
-                A UID already registered in this tournament (as host or teammate) cannot be added.
+                A UID already registered in this tournament cannot be added.
               </p>
             </div>
           )}
@@ -347,9 +383,11 @@ function AlreadyRegisteredPanel({ registration: initialReg, tournament, onUpdate
         </p>
       )}
 
-      <p className="text-[11px] text-slate-400">
-        Room code and match schedule will be shared before the tournament starts.
-      </p>
+      {!roomCode && (
+        <p className="text-[11px] text-slate-400">
+          Room code and match schedule will be shared before the tournament starts.
+        </p>
+      )}
     </div>
   )
 }
@@ -366,11 +404,29 @@ function RegistrationForm({ tournament, onRegistered }) {
   const [mates, setMates] = React.useState(Array(Math.max(0, slots)).fill(''))
   const [err, setErr] = React.useState(null)
   const [paymentId, setPaymentId] = React.useState(null)
+  const [banInfo, setBanInfo] = React.useState(undefined) // undefined=loading, null=no ban
 
-  const hostUid = profile?.ff_uid || ''
-  const closesAt = tournament.registration_closes_at
+  // ── Use correct DB column: entry_closing_time ──
+  const closesAt = tournament.entry_closing_time
   const matchTime = fmtDate(tournament.start_time)
   const closesTime = fmtDate(closesAt)
+  const hostUid = profile?.ff_uid || ''
+
+  // Check if player is banned
+  React.useEffect(() => {
+    if (!profile?.id) { setBanInfo(null); return }
+    async function checkBan() {
+      const now = new Date().toISOString()
+      const { data } = await supabasePlayer
+        .from('bans')
+        .select('id, reason, banned_until')
+        .eq('player_id', profile.id)
+        .or(`banned_until.is.null,banned_until.gt.${now}`)
+        .maybeSingle()
+      setBanInfo(data ?? null)
+    }
+    checkBan()
+  }, [profile?.id])
 
   function setMate(i, val) {
     setMates((prev) => prev.map((v, idx) => (idx === i ? val : v)))
@@ -421,6 +477,33 @@ function RegistrationForm({ tournament, onRegistered }) {
     )
   }
 
+  // ── Guard: ban check loading ──
+  if (banInfo === undefined) {
+    return (
+      <div className="card flex items-center gap-3 py-6 text-xs text-slate-400">
+        <div className="h-4 w-4 animate-spin rounded-full border-2 border-slate-600 border-t-sky-400" />
+        <p>Checking eligibility…</p>
+      </div>
+    )
+  }
+
+  // ── Guard: banned ──
+  if (banInfo) {
+    const bannedUntilText = banInfo.banned_until
+      ? `until ${fmtDate(banInfo.banned_until)}`
+      : 'permanently'
+    return (
+      <div className="card space-y-2 text-xs">
+        <h2 className="text-sm font-semibold text-slate-50">Register for this tournament</h2>
+        <div className="rounded-lg bg-red-500/10 px-3 py-3 space-y-1 text-[11px] text-red-400">
+          <p className="font-semibold">🚫 You are banned from Tournvia tournaments</p>
+          <p>Reason: {banInfo.reason}</p>
+          <p className="text-slate-400">Banned {bannedUntilText}. Contact support if you believe this is a mistake.</p>
+        </div>
+      </div>
+    )
+  }
+
   async function handleSubmit(e) {
     e.preventDefault()
     setErr(null)
@@ -434,14 +517,14 @@ function RegistrationForm({ tournament, onRegistered }) {
     const hostConflict = findUidConflict(existingRegs, [hostUid])
     if (hostConflict) {
       return setErr(
-        `❌ Your UID (${hostUid}) is already registered in this tournament as part of another team. You cannot register again.`
+        `❌ Your UID (${hostUid}) is already registered in this tournament as part of another team.`
       )
     }
 
     const teammateConflict = findUidConflict(existingRegs, filledMates)
     if (teammateConflict) {
       return setErr(
-        `❌ UID "${teammateConflict}" is already registered in this tournament (as host or teammate in another team). Use a different UID.`
+        `❌ UID "${teammateConflict}" is already registered in this tournament. Use a different UID.`
       )
     }
 
@@ -664,7 +747,8 @@ export function TournamentDetails() {
   const registrationOpen = tournament.registration_status === 'open'
   const isFull = tournament.filled_slots >= tournament.max_slots
   const matchTime = fmtDate(tournament.start_time)
-  const closesTime = fmtDate(tournament.registration_closes_at)
+  // ── Use correct DB column: entry_closing_time ──
+  const closesTime = fmtDate(tournament.entry_closing_time)
 
   const allRegs = tournament.tournament_registrations || []
   const myUid = profile?.ff_uid || null
@@ -700,7 +784,7 @@ export function TournamentDetails() {
             <h2 className="text-sm font-semibold text-sky-400">You're in this tournament!</h2>
           </div>
           <div className="rounded-lg bg-slate-900/80 px-3 py-3 space-y-2 ring-1 ring-slate-700">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400 mb-1">Your team</p>
+            <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400">Team</p>
             <div className="flex items-center justify-between">
               <span className="text-slate-400">Team name</span>
               <span className="font-semibold text-slate-50">{addedAsTeammate.team_name}</span>
@@ -709,20 +793,7 @@ export function TournamentDetails() {
               <span className="text-slate-400">Host UID</span>
               <span className="font-mono text-slate-200">{addedAsTeammate.host_uid}</span>
             </div>
-            <div className="flex items-center justify-between">
-              <span className="text-slate-400">Your role</span>
-              <span className="text-sky-300">Teammate</span>
-            </div>
           </div>
-          {(closesTime || matchTime) && (
-            <div className="rounded-lg bg-slate-900/70 px-3 py-2 space-y-1.5 ring-1 ring-slate-800 text-[11px]">
-              {closesTime && <div className="flex justify-between gap-2"><span className="text-slate-400">Entry closes</span><span className="font-semibold text-amber-300">{closesTime}</span></div>}
-              {matchTime && <div className="flex justify-between gap-2"><span className="text-slate-400">Match starts</span><span className="font-semibold text-sky-300">{matchTime}</span></div>}
-            </div>
-          )}
-          <p className="text-[11px] text-amber-300">
-            ⚠️ You have been added to a team by {addedAsTeammate.team_name}. You cannot register as host in this tournament.
-          </p>
           <p className="text-[11px] text-slate-400">Room code will be shared before the match starts.</p>
         </div>
       )
@@ -730,20 +801,23 @@ export function TournamentDetails() {
 
     if (!registrationOpen) {
       return (
-        <div className="card space-y-2 text-xs text-slate-400">
-          <h2 className="text-sm font-semibold text-slate-50">Registration</h2>
-          <p>Entries are currently closed for this tournament.</p>
-          {matchTime && <div className="flex justify-between text-[11px]"><span className="text-slate-400">Match starts</span><span className="font-semibold text-sky-300">{matchTime}</span></div>}
+        <div className="card space-y-2 text-xs text-slate-300">
+          <h2 className="text-sm font-semibold text-slate-50">Registrations Closed</h2>
+          <p className="text-slate-400">Entry for this tournament has closed. Watch it live on YouTube or check results after.</p>
+          {tournament.youtube_live_url && (
+            <a href={tournament.youtube_live_url} target="_blank" rel="noopener noreferrer" className="btn-primary w-full text-center text-xs block">
+              Watch Live on YouTube
+            </a>
+          )}
         </div>
       )
     }
 
     if (isFull) {
       return (
-        <div className="card space-y-2 text-xs text-slate-400">
-          <h2 className="text-sm font-semibold text-slate-50">Registration</h2>
-          <p className="text-red-400">All slots are full. No more registrations.</p>
-          {matchTime && <div className="flex justify-between text-[11px]"><span className="text-slate-400">Match starts</span><span className="font-semibold text-sky-300">{matchTime}</span></div>}
+        <div className="card space-y-2 text-xs text-slate-300">
+          <h2 className="text-sm font-semibold text-slate-50">Tournament Full</h2>
+          <p className="text-slate-400">All {tournament.max_slots} slots have been filled. Follow us to be notified about future tournaments.</p>
         </div>
       )
     }
@@ -753,101 +827,97 @@ export function TournamentDetails() {
 
   return (
     <div className="space-y-6">
-      <header className="space-y-1">
-        <p className="badge">{isLong ? 'Long Tournament' : 'Single Match'}</p>
-        <h1 className="text-2xl font-semibold text-slate-50">{tournament.title}</h1>
-        <p className="text-xs text-slate-400">
-          {modeBadgeLabel(tournament)}
-          {tournament.map ? ` • ${tournament.map}` : ''}
-          {tournament.team_size ? ` • ${teamSizeLabel(tournament.team_size)}` : ''}
-        </p>
+      {/* Header */}
+      <header className="space-y-2">
+        <div className="flex flex-wrap items-center gap-2 text-[11px]">
+          <span className="badge">{tournament.type === 'long' ? 'Long Tournament' : 'Single Match'}</span>
+          <span className="rounded-full bg-slate-800 px-2 py-0.5 text-slate-300">{modeBadgeLabel(tournament)}</span>
+          {tournament.map && <span className="rounded-full bg-slate-800 px-2 py-0.5 text-slate-300">Map: {tournament.map}</span>}
+          {tournament.team_size && <span className="rounded-full bg-slate-800 px-2 py-0.5 text-slate-300">{teamSizeLabel(tournament.team_size)}</span>}
+        </div>
+        <h1 className="text-2xl font-semibold tracking-tight text-slate-50">{tournament.title}</h1>
+        <div className="flex flex-wrap gap-4 text-[11px] text-slate-400">
+          <span>Entry fee: <span className="text-slate-200 font-semibold">{tournament.entry_fee === 0 ? 'FREE' : `₹${tournament.entry_fee}`}</span></span>
+          <span>Slots: <span className="text-slate-200">{tournament.filled_slots}/{tournament.max_slots}</span></span>
+          {matchTime && <span>Match: <span className="text-sky-300 font-semibold">{matchTime}</span></span>}
+          {closesTime && <span>Entries close: <span className="text-amber-300 font-semibold">{closesTime}</span></span>}
+        </div>
       </header>
 
-      <section className="grid gap-4 md:grid-cols-[2fr_1.2fr]">
+      <div className="grid gap-6 lg:grid-cols-[1fr_360px]">
+        {/* Left column */}
         <div className="space-y-4">
-          <div className="card space-y-2 text-xs text-slate-200">
-            <h2 className="text-sm font-semibold text-slate-50">Prize pool &amp; points</h2>
-            <p className="whitespace-pre-line">{tournament.prize_text}</p>
-            {tournament.points_table && (
-              <div className="mt-3 rounded-xl bg-slate-900/80 p-3">
-                <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">Points table</p>
-                <p className="mt-1 whitespace-pre-line text-xs text-slate-200">{tournament.points_table}</p>
-              </div>
-            )}
-          </div>
-
-          {isLong && (
-            <div className="card space-y-3">
-              <h2 className="text-sm font-semibold text-slate-50">Registered teams</h2>
-              <ul className="text-xs text-slate-200">
-                {allRegs.map((r) => (
-                  <li key={r.id} className="flex items-center justify-between border-b border-slate-800 py-1 last:border-0">
-                    <span>{r.team_name}</span>
-                    <span className="text-[11px] text-slate-400">Host UID: {r.host_uid}</span>
-                  </li>
-                ))}
-                {allRegs.length === 0 && <li className="text-xs text-slate-400">No teams registered yet.</li>}
-              </ul>
-            </div>
+          {/* Prize */}
+          {tournament.prize_text && (
+            <section className="card space-y-2">
+              <h2 className="text-sm font-semibold text-slate-50">🏆 Prize Pool</h2>
+              <p className="text-xs text-slate-300 whitespace-pre-line">{tournament.prize_text}</p>
+            </section>
           )}
 
-          {isLong && (
-            <div className="card space-y-3">
-              <h2 className="text-sm font-semibold text-slate-50">Bracket</h2>
-              {(tournament.long_brackets || []).length === 0 ? (
-                <p className="text-xs text-slate-400">Fixtures haven't been generated yet. Check back after registration closes.</p>
-              ) : (
-                (tournament.long_brackets || []).map((bracket) => (
-                  <div key={bracket.id} className="space-y-2">
-                    <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">{bracket.name || `Bracket ${bracket.id}`}</p>
-                    <ul className="text-xs text-slate-200">
-                      {(bracket.long_br_matches || []).map((match) => (
-                        <li key={match.id} className="flex items-center justify-between border-b border-slate-800 py-1 last:border-0">
-                          <span>Round {match.round_number} — Match {match.match_number}</span>
-                          <span className="text-[11px] text-slate-400">{match.winner_registration_id ? '✅ Decided' : 'Pending'}</span>
-                        </li>
-                      ))}
-                      {(!bracket.long_br_matches || bracket.long_br_matches.length === 0) && (
-                        <li className="text-xs text-slate-400">No matches yet.</li>
-                      )}
-                    </ul>
+          {/* Points table */}
+          {tournament.points_table && (
+            <section className="card space-y-2">
+              <h2 className="text-sm font-semibold text-slate-50">📊 Points Table</h2>
+              <p className="text-xs text-slate-300 whitespace-pre-line">{tournament.points_table}</p>
+            </section>
+          )}
+
+          {/* Match rules */}
+          <section className="card space-y-2 text-xs text-slate-300">
+            <h2 className="text-sm font-semibold text-slate-50">📋 Match Rules</h2>
+            <ul className="list-disc space-y-1 pl-4">
+              <li>Mobile only — no emulators</li>
+              <li>Minimum level 45+, Diamond 1+ rank required</li>
+              <li>Skills: <span className="font-semibold text-slate-100">{tournament.skills_on ? 'ON' : 'OFF'}</span></li>
+              <li>Ammo: <span className="font-semibold text-slate-100">{tournament.limited_ammo ? 'Limited' : 'Normal'}</span></li>
+              {tournament.players_per_match && <li>Players per match: {tournament.players_per_match}</li>}
+              {tournament.total_rounds && <li>Total rounds: {tournament.total_rounds}</li>}
+              {tournament.lw_format && <li>Format: {tournament.lw_format}</li>}
+            </ul>
+            <a href="/rules" className="mt-2 inline-block text-[11px] text-sky-400 hover:text-sky-300 transition-colors">View full rules →</a>
+          </section>
+
+          {/* Winner */}
+          {tournament.winner_text && (
+            <section className="card space-y-2">
+              <h2 className="text-sm font-semibold text-amber-300">🥇 Results</h2>
+              <p className="text-xs text-slate-300 whitespace-pre-line">{tournament.winner_text}</p>
+            </section>
+          )}
+
+          {/* YouTube */}
+          {tournament.youtube_live_url && (
+            <section className="card space-y-2">
+              <h2 className="text-sm font-semibold text-slate-50">📺 Live Stream</h2>
+              <a href={tournament.youtube_live_url} target="_blank" rel="noopener noreferrer" className="btn-primary w-full text-center text-xs block">
+                Watch Live on YouTube
+              </a>
+            </section>
+          )}
+
+          {/* Registrations list */}
+          {allRegs.length > 0 && (
+            <section className="card space-y-3">
+              <h2 className="text-sm font-semibold text-slate-50">Registered Teams ({allRegs.length}/{tournament.max_slots})</h2>
+              <div className="space-y-2">
+                {allRegs.map((reg, i) => (
+                  <div key={reg.id} className="flex items-center gap-3 rounded-lg bg-slate-900/60 px-3 py-2 text-xs">
+                    <span className="text-slate-500 w-5 text-right">{i + 1}.</span>
+                    <span className="flex-1 font-semibold text-slate-100">{reg.team_name}</span>
+                    <span className="font-mono text-slate-400">{reg.host_uid}</span>
                   </div>
-                ))
-              )}
-            </div>
+                ))}
+              </div>
+            </section>
           )}
         </div>
 
-        <aside className="space-y-4">
-          <div className="card space-y-2 text-xs text-slate-200">
-            <h2 className="text-sm font-semibold text-slate-50">Entry details</h2>
-            <p>Entry fee: <span className="font-semibold text-slate-50">₹{tournament.entry_fee}</span></p>
-            <p>
-              Slots:{' '}
-              <span className={isFull ? 'font-semibold text-red-400' : 'font-semibold text-emerald-400'}>
-                {tournament.filled_slots}/{tournament.max_slots}
-              </span>
-              {isFull && <span className="ml-1 text-red-400">· Full</span>}
-            </p>
-            {closesTime && <div className="flex justify-between text-[11px]"><span className="text-slate-400">Entry closes</span><span className="font-semibold text-amber-300">{closesTime}</span></div>}
-            {matchTime && <div className="flex justify-between text-[11px]"><span className="text-slate-400">Match starts</span><span className="font-semibold text-sky-300">{matchTime}</span></div>}
-            <p>Requirements: Level 45+, Diamond 1+, mobile only (no emulators).</p>
-            <p className="text-[11px] text-amber-300">No refunds after joining. Make sure you can play at the scheduled time.</p>
-          </div>
-
+        {/* Right column */}
+        <div>
           {renderRightPanel()}
-
-          {tournament.youtube_live_url && (
-            <div className="card space-y-2 text-xs text-slate-200">
-              <h2 className="text-sm font-semibold text-slate-50">Watch live on YouTube</h2>
-              <p>Finals and featured matches are streamed live.</p>
-              <a href={tournament.youtube_live_url} target="_blank" rel="noopener noreferrer" className="btn-primary w-full text-xs text-center">
-                Subscribe &amp; watch live
-              </a>
-            </div>
-          )}
-        </aside>
-      </section>
+        </div>
+      </div>
     </div>
   )
 }
