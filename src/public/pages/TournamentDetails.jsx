@@ -94,6 +94,9 @@ function findUidConflict(registrations, uidsToCheck) {
 
 function AlreadyRegisteredPanel({ registration: initialReg, tournament, onUpdated }) {
   const slots = teammateCount(tournament.team_size)
+
+  // ── Local copy of the registration so view updates after save/reload ──
+  const [reg, setReg] = React.useState(initialReg)
   const [editing, setEditing] = React.useState(false)
   const [teamName, setTeamName] = React.useState(initialReg.team_name || '')
   const [mates, setMates] = React.useState([
@@ -104,6 +107,20 @@ function AlreadyRegisteredPanel({ registration: initialReg, tournament, onUpdate
   const [saving, setSaving] = React.useState(false)
   const [saveErr, setSaveErr] = React.useState(null)
   const [saveOk, setSaveOk] = React.useState(false)
+
+  // Sync local state whenever the parent re-fetches and passes a fresh prop
+  React.useEffect(() => {
+    setReg(initialReg)
+    // Only update edit fields if not currently editing (don't clobber user input)
+    if (!editing) {
+      setTeamName(initialReg.team_name || '')
+      setMates([
+        initialReg.teammate_uid_1 || '',
+        initialReg.teammate_uid_2 || '',
+        initialReg.teammate_uid_3 || '',
+      ])
+    }
+  }, [initialReg])
 
   const closesAt = tournament.registration_closes_at
   const editable =
@@ -120,13 +137,11 @@ function AlreadyRegisteredPanel({ registration: initialReg, tournament, onUpdate
     setSaveOk(false)
 
     // ── Duplicate UID check (frontend) ──
-    // Get all OTHER registrations (exclude this team's own row)
     const otherRegs = (tournament.tournament_registrations || []).filter(
-      (r) => r.id !== initialReg.id
+      (r) => r.id !== reg.id
     )
     const newMates = mates.map((m) => m.trim()).filter(Boolean)
 
-    // Check teammate UIDs against other registrations
     const conflictUid = findUidConflict(otherRegs, newMates)
     if (conflictUid) {
       setSaveErr(
@@ -136,8 +151,7 @@ function AlreadyRegisteredPanel({ registration: initialReg, tournament, onUpdate
       return
     }
 
-    // Check for duplicate UIDs within the same input (e.g. same UID in two teammate slots)
-    const allNewUids = [initialReg.host_uid, ...newMates]
+    const allNewUids = [reg.host_uid, ...newMates]
     const uniqueUids = new Set(allNewUids)
     if (uniqueUids.size !== allNewUids.length) {
       setSaveErr('❌ Duplicate UIDs detected in your team. Each player must have a unique UID.')
@@ -146,16 +160,31 @@ function AlreadyRegisteredPanel({ registration: initialReg, tournament, onUpdate
     }
 
     try {
+      const t1 = mates[0].trim() || null
+      const t2 = mates[1].trim() || null
+      const t3 = mates[2].trim() || null
+
       const { error } = await supabasePlayer
         .from('tournament_registrations')
         .update({
-          team_name: teamName.trim() || initialReg.team_name,
-          teammate_uid_1: mates[0].trim() || null,
-          teammate_uid_2: mates[1].trim() || null,
-          teammate_uid_3: mates[2].trim() || null,
+          team_name: teamName.trim() || reg.team_name,
+          teammate_uid_1: t1,
+          teammate_uid_2: t2,
+          teammate_uid_3: t3,
         })
-        .eq('id', initialReg.id)
+        .eq('id', reg.id)
+
       if (error) throw new Error(error.message)
+
+      // Immediately update local reg so view reflects changes without waiting for parent reload
+      setReg((prev) => ({
+        ...prev,
+        team_name: teamName.trim() || prev.team_name,
+        teammate_uid_1: t1,
+        teammate_uid_2: t2,
+        teammate_uid_3: t3,
+      }))
+
       setSaveOk(true)
       setEditing(false)
       if (onUpdated) onUpdated()
@@ -209,17 +238,17 @@ function AlreadyRegisteredPanel({ registration: initialReg, tournament, onUpdate
           <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400 mb-2">Team details</p>
           <div className="flex items-center justify-between">
             <span className="text-slate-400">Team name</span>
-            <span className="font-semibold text-slate-50">{initialReg.team_name}</span>
+            <span className="font-semibold text-slate-50">{reg.team_name}</span>
           </div>
           <div className="flex items-center justify-between">
             <span className="text-slate-400">Your UID</span>
-            <span className="font-mono text-slate-100">{initialReg.host_uid}</span>
+            <span className="font-mono text-slate-100">{reg.host_uid}</span>
           </div>
           {slots > 0 && (
-            <div className="pt-1 border-t border-slate-800 space-y-1">
+            <div className="pt-1 border-t border-slate-800 space-y-1.5">
               <p className="text-[11px] text-slate-400 mb-1">Teammate UIDs</p>
               {Array.from({ length: slots }).map((_, i) => {
-                const uid = [initialReg.teammate_uid_1, initialReg.teammate_uid_2, initialReg.teammate_uid_3][i]
+                const uid = [reg.teammate_uid_1, reg.teammate_uid_2, reg.teammate_uid_3][i]
                 return (
                   <div key={i} className="flex items-center justify-between">
                     <span className="text-slate-400">Teammate {i + 1}</span>
@@ -253,7 +282,7 @@ function AlreadyRegisteredPanel({ registration: initialReg, tournament, onUpdate
           <div className="space-y-1">
             <label className="block text-[11px] text-slate-400">Your UID (locked)</label>
             <div className="flex items-center gap-2 rounded-lg bg-slate-900/60 px-3 py-2 ring-1 ring-slate-800">
-              <span className="font-mono text-slate-300">{initialReg.host_uid}</span>
+              <span className="font-mono text-slate-300">{reg.host_uid}</span>
               <span className="ml-auto text-[10px] text-emerald-400">verified ✓</span>
             </div>
           </div>
@@ -291,11 +320,11 @@ function AlreadyRegisteredPanel({ registration: initialReg, tournament, onUpdate
               onClick={() => {
                 setEditing(false)
                 setSaveErr(null)
-                setTeamName(initialReg.team_name || '')
+                setTeamName(reg.team_name || '')
                 setMates([
-                  initialReg.teammate_uid_1 || '',
-                  initialReg.teammate_uid_2 || '',
-                  initialReg.teammate_uid_3 || '',
+                  reg.teammate_uid_1 || '',
+                  reg.teammate_uid_2 || '',
+                  reg.teammate_uid_3 || '',
                 ])
               }}
               className="rounded-lg bg-slate-800 px-4 py-2 text-[11px] text-slate-300 hover:bg-slate-700 transition-colors"
@@ -398,14 +427,10 @@ function RegistrationForm({ tournament, onRegistered }) {
     if (!teamName.trim()) return setErr('Team name is required.')
     if (!hostUid) return setErr('Could not read your UID from profile. Please refresh.')
 
-    // ──────────────────────────────────────────────────────
-    // DUPLICATE UID CHECK (frontend — fast, before opening Razorpay)
-    // ──────────────────────────────────────────────────────
     const existingRegs = tournament.tournament_registrations || []
     const filledMates = mates.map((m) => m.trim()).filter(Boolean)
     const allNewUids = [hostUid, ...filledMates]
 
-    // 1. Check host UID against all existing registrations
     const hostConflict = findUidConflict(existingRegs, [hostUid])
     if (hostConflict) {
       return setErr(
@@ -413,7 +438,6 @@ function RegistrationForm({ tournament, onRegistered }) {
       )
     }
 
-    // 2. Check each teammate UID against all existing registrations
     const teammateConflict = findUidConflict(existingRegs, filledMates)
     if (teammateConflict) {
       return setErr(
@@ -421,12 +445,10 @@ function RegistrationForm({ tournament, onRegistered }) {
       )
     }
 
-    // 3. Check for duplicate UIDs within this submission itself
     const uniqueNewUids = new Set(allNewUids)
     if (uniqueNewUids.size !== allNewUids.length) {
       return setErr('❌ Duplicate UIDs in your submission. Each player must have a unique UID.')
     }
-    // ──────────────────────────────────────────────────────
 
     setStep('paying')
 
@@ -644,7 +666,6 @@ export function TournamentDetails() {
   const matchTime = fmtDate(tournament.start_time)
   const closesTime = fmtDate(tournament.registration_closes_at)
 
-  // Is the logged-in player already in this tournament as host OR as a teammate on someone else's team?
   const allRegs = tournament.tournament_registrations || []
   const myUid = profile?.ff_uid || null
 
@@ -661,7 +682,6 @@ export function TournamentDetails() {
     : null
 
   function renderRightPanel() {
-    // Already registered as host
     if (myReg) {
       return (
         <AlreadyRegisteredPanel
@@ -672,7 +692,6 @@ export function TournamentDetails() {
       )
     }
 
-    // Already added as a teammate in someone else's team
     if (addedAsTeammate) {
       return (
         <div className="card space-y-3 text-xs text-slate-200">
