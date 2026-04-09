@@ -34,17 +34,29 @@ export function Tournaments() {
     return () => { ignore = true }
   }, [])
 
-  // Load which tournaments this player has already registered for
+  // Load which tournaments this player has already registered for (as host or teammate)
   React.useEffect(() => {
     if (!profile?.ff_uid) { setMyRegistrations([]); return }
     let ignore = false
     async function loadMyRegs() {
-      const { data } = await supabasePlayer
+      const uid = profile.ff_uid
+      // Fetch registrations where this player is the host
+      const { data: asHost } = await supabasePlayer
         .from('tournament_registrations')
         .select('tournament_id')
-        .eq('host_uid', profile.ff_uid)
+        .eq('host_uid', uid)
+      // Fetch registrations where this player is a teammate
+      const { data: asTeammate } = await supabasePlayer
+        .from('tournament_registrations')
+        .select('tournament_id')
+        .or(
+          `teammate_uid_1.eq.${uid},teammate_uid_2.eq.${uid},teammate_uid_3.eq.${uid}`
+        )
       if (!ignore) {
-        setMyRegistrations((data || []).map((r) => r.tournament_id))
+        const hostIds = (asHost || []).map((r) => r.tournament_id)
+        const teammateIds = (asTeammate || []).map((r) => r.tournament_id)
+        // Deduplicate
+        setMyRegistrations([...new Set([...hostIds, ...teammateIds])])
       }
     }
     loadMyRegs()
@@ -108,7 +120,7 @@ export function Tournaments() {
                 <p className="mt-1 text-xs text-slate-300 line-clamp-2">{t.prize_text}</p>
                 <div className="mt-3 flex flex-wrap items-center justify-between gap-3 text-[11px] text-slate-300">
                   <div className="flex flex-wrap items-center gap-3">
-                    <span>Entry fee: ₹{t.entry_fee}</span>
+                    <span>Entry fee: {Number(t.entry_fee) === 0 ? 'FREE' : `₹${t.entry_fee}`}</span>
                     <span>Slots: {t.filled_slots}/{t.max_slots}</span>
                     <span>Req: Level 45+, Diamond 1+</span>
                   </div>
