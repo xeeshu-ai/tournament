@@ -35,9 +35,11 @@ export function PlayerProvider({ children }) {
     return () => sub.subscription.unsubscribe()
   }, [])
 
-  // Called by Profile page after a successful insert/update so badge updates instantly
+  // Called by Profile page after a successful insert/update so badge updates instantly.
+  // Returns the promise so callers can await it reliably.
   function refreshProfile() {
-    if (user) fetchProfile(user)
+    if (user) return fetchProfile(user)
+    return Promise.resolve()
   }
 
   return (
