@@ -122,6 +122,54 @@ function RegistrationForm({ tournament }) {
     )
   }
 
+  // ── Guard: already registered ──
+  const alreadyRegistered = (tournament.tournament_registrations || []).find(
+    (r) => r.host_uid === profile.ff_uid
+  ) || null
+
+  if (alreadyRegistered) {
+    const reg = alreadyRegistered
+    const teammates = [
+      reg.teammate_uid_1,
+      reg.teammate_uid_2,
+      reg.teammate_uid_3,
+    ].filter(Boolean)
+
+    return (
+      <div className="card space-y-3 text-xs text-slate-200">
+        <div className="flex items-center gap-2">
+          <span className="text-lg">✅</span>
+          <h2 className="text-sm font-semibold text-emerald-400">You're already registered!</h2>
+        </div>
+        <div className="rounded-lg bg-slate-900/80 px-3 py-3 space-y-2 ring-1 ring-slate-700">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400 mb-2">Your Registration</p>
+          <div className="flex items-center justify-between">
+            <span className="text-slate-400">Team name</span>
+            <span className="font-semibold text-slate-50">{reg.team_name}</span>
+          </div>
+          <div className="flex items-center justify-between">
+            <span className="text-slate-400">Your UID</span>
+            <span className="font-mono text-slate-100">{reg.host_uid}</span>
+          </div>
+          {teammates.length > 0 && (
+            <div className="pt-1 border-t border-slate-800 space-y-1">
+              <p className="text-[11px] text-slate-400">Teammate UIDs</p>
+              {teammates.map((uid, i) => (
+                <div key={i} className="flex items-center justify-between">
+                  <span className="text-slate-400">Teammate {i + 1}</span>
+                  <span className="font-mono text-slate-200">{uid}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+        <p className="text-[11px] text-slate-400">
+          Room code and match schedule will be shared before the tournament starts. Keep an eye on your notifications.
+        </p>
+      </div>
+    )
+  }
+
   async function handleSubmit(e) {
     e.preventDefault()
     setErr(null)
