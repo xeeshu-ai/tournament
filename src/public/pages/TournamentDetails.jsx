@@ -2,6 +2,7 @@ import React from 'react'
 import { useParams } from 'react-router-dom'
 import { supabasePlayer } from '../../lib/supabaseClient'
 import { usePlayer } from '../../lib/PlayerContext'
+import { getModeLabel } from '../../lib/constants'
 
 // ─── Razorpay key ───────────────────────────────────────────────────────────────────
 const RZP_KEY = import.meta.env.VITE_RAZORPAY_KEY_ID || 'rzp_test_SaUtkNyiEDfrAm'
@@ -24,7 +25,7 @@ function teammateCount(teamSize) {
 
 function modeBadgeLabel(t) {
   if (!t) return ''
-  return [t.mode_label, t.format_label].filter(Boolean).join(' • ')
+  return [getModeLabel(t), t.format_label].filter(Boolean).join(' • ')
 }
 
 function teamSizeLabel(teamSize) {
