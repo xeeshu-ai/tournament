@@ -4,10 +4,10 @@ import { supabasePlayer } from '../../lib/supabaseClient'
 import { usePlayer } from '../../lib/PlayerContext'
 import { getModeLabel } from '../../lib/constants'
 
-// ─── Razorpay key ───────────────────────────────────────────────────────────────────
+// ─── Razorpay key ───────────────────────────────────────────────────────────────────────────────────
 const RZP_KEY = import.meta.env.VITE_RAZORPAY_KEY_ID || 'rzp_test_SaUtkNyiEDfrAm'
 
-// ─── Teammate UID Validator ────────────────────────────────────────────────────
+// ─── Teammate UID Validator ────────────────────────────────────────────────────────────────────────
 function useUidValidation(uid, hostUid) {
   const [state, setState] = React.useState({ status: 'idle', name: null })
   React.useEffect(() => {
@@ -34,7 +34,7 @@ function useUidValidation(uid, hostUid) {
   return state
 }
 
-// ─── Single validated teammate input ──────────────────────────────────────────
+// ─── Single validated teammate input ─────────────────────────────────────────────────────────────────
 function TeammateInput({ index, value, onChange, hostUid }) {
   const v = useUidValidation(value, hostUid)
   return (
@@ -55,8 +55,7 @@ function TeammateInput({ index, value, onChange, hostUid }) {
   )
 }
 
-// ─── helpers ───────────────────────────────────────────────────────────────────
-
+// ─── helpers ───────────────────────────────────────────────────────────────────────────────
 function teammateCount(teamSize) {
   if (teamSize === null || teamSize === undefined) return 0
   const n = Number(teamSize)
@@ -73,7 +72,7 @@ function teammateCount(teamSize) {
 
 function modeBadgeLabel(t) {
   if (!t) return ''
-  return [getModeLabel(t), t.format_label].filter(Boolean).join(' • ')
+  return [getModeLabel(t), t.format_label].filter(Boolean).join(' \u2022 ')
 }
 
 function teamSizeLabel(teamSize) {
@@ -136,7 +135,7 @@ function findUidConflict(registrations, uidsToCheck) {
   return null
 }
 
-// ─── Tournament Results Component ─────────────────────────────────────────────
+// ─── Tournament Results Component ─────────────────────────────────────────────────────────────────
 
 function TournamentResults({ tournament }) {
   const [brScores, setBrScores] = React.useState(null)
@@ -324,7 +323,7 @@ function TournamentResults({ tournament }) {
   )
 }
 
-// ─── Ended Tournament Right Panel ─────────────────────────────────────────────
+// ─── Ended Tournament Right Panel ───────────────────────────────────────────────────────────────
 
 function EndedTournamentPanel({ tournament }) {
   return (
@@ -341,9 +340,85 @@ function EndedTournamentPanel({ tournament }) {
   )
 }
 
-// ─── Already Registered Panel (with teammate editor + room code) ───────────────
+// ─── Room Code Card (host-only) ─────────────────────────────────────────────────────────────────────
 
-function AlreadyRegisteredPanel({ tournament, reg: initialReg, onUpdated }) {
+function RoomCodeCard({ tournamentId }) {
+  const [roomCode, setRoomCode] = React.useState(undefined) // undefined = loading
+  const [now, setNow] = React.useState(() => new Date())
+
+  React.useEffect(() => {
+    async function fetchRoom() {
+      const { data } = await supabasePlayer
+        .from('room_codes')
+        .select('room_id, room_password, reveal_at')
+        .eq('tournament_id', tournamentId)
+        .maybeSingle()
+      setRoomCode(data || null)
+    }
+    fetchRoom()
+  }, [tournamentId])
+
+  // tick every 30s to re-check reveal time
+  React.useEffect(() => {
+    const timer = setInterval(() => setNow(new Date()), 30_000)
+    return () => clearInterval(timer)
+  }, [])
+
+  if (roomCode === undefined) {
+    return (
+      <div className="card space-y-2">
+        <p className="text-xs font-semibold text-slate-300">🎮 Room Details <span className="text-[10px] text-amber-400 font-normal ml-1">(Host only)</span></p>
+        <p className="text-[11px] text-slate-500 animate-pulse">Loading…</p>
+      </div>
+    )
+  }
+
+  if (!roomCode) {
+    return (
+      <div className="card space-y-2">
+        <p className="text-xs font-semibold text-slate-300">🎮 Room Details <span className="text-[10px] text-amber-400 font-normal ml-1">(Host only)</span></p>
+        <p className="text-[11px] text-slate-400">Room details will be shared before the match starts.</p>
+        <p className="text-[10px] text-slate-500">Share these with your teammates once you receive them.</p>
+      </div>
+    )
+  }
+
+  const revealAt = roomCode.reveal_at ? new Date(roomCode.reveal_at) : null
+  const isRevealed = !revealAt || now >= revealAt
+
+  if (!isRevealed) {
+    return (
+      <div className="card space-y-2">
+        <p className="text-xs font-semibold text-slate-300">🎮 Room Details <span className="text-[10px] text-amber-400 font-normal ml-1">(Host only)</span></p>
+        <p className="text-[11px] text-amber-400">
+          ⏰ Room details will be visible at {fmtDate(roomCode.reveal_at)}
+        </p>
+        <p className="text-[10px] text-slate-500">Once revealed, share the room ID and password with your teammates.</p>
+      </div>
+    )
+  }
+
+  return (
+    <div className="card space-y-3 border border-emerald-800/40 bg-emerald-500/5">
+      <p className="text-xs font-semibold text-emerald-300">🎮 Room Details <span className="text-[10px] text-amber-400 font-normal ml-1">(Host only — share with teammates)</span></p>
+      <div className="space-y-2">
+        <div className="flex items-center justify-between rounded-lg bg-slate-900/60 px-3 py-2">
+          <span className="text-[11px] text-slate-400">Room ID</span>
+          <span className="font-mono text-sm font-bold text-slate-50 tracking-wider select-all">{roomCode.room_id}</span>
+        </div>
+        <div className="flex items-center justify-between rounded-lg bg-slate-900/60 px-3 py-2">
+          <span className="text-[11px] text-slate-400">Password</span>
+          <span className="font-mono text-sm font-bold text-slate-50 tracking-wider select-all">{roomCode.room_password}</span>
+        </div>
+      </div>
+      <p className="text-[10px] text-slate-500">📤 Share this with your teammates. Do not post publicly.</p>
+    </div>
+  )
+}
+
+// ─── Already Registered Panel (with teammate editor + room code for host) ──────────────────────────────
+
+function AlreadyRegisteredPanel({ tournament, reg: initialReg, profile, onUpdated }) {
   const slots = teammateCount(tournament.team_size)
   const [mates, setMates] = React.useState([
     initialReg.teammate_uid_1 || '',
@@ -364,16 +439,12 @@ function AlreadyRegisteredPanel({ tournament, reg: initialReg, onUpdated }) {
     ])
   }, [initialReg])
 
-  const roomCode = reg.room_code || null
-  const roomPass = reg.room_password || null
-  const roomRevealAt = reg.room_reveal_at ? new Date(reg.room_reveal_at) : null
-  const now = new Date()
-  const roomVisible = roomRevealAt ? now >= roomRevealAt : true
+  // Is the current logged-in player the host of this registration?
+  const isHost = profile?.ff_uid && String(profile.ff_uid).trim() === String(reg.host_uid).trim()
 
   async function handleSaveMates() {
     setSaving(true); setSaveErr(''); setSaveOk(false)
 
-    // Validate teammate UIDs are approved players
     for (let i = 0; i < slots; i++) {
       const uid = mates[i]?.trim()
       if (!uid) continue
@@ -382,8 +453,8 @@ function AlreadyRegisteredPanel({ tournament, reg: initialReg, onUpdated }) {
         .select('player_name, is_approved')
         .eq('ff_uid', uid)
         .single()
-      if (!p) { setSaveErr(`❌ Teammate ${i + 1}: No player found with UID "${uid}". Only registered app users can be added.`); setSaving(false); return }
-      if (!p.is_approved) { setSaveErr(`❌ Teammate ${i + 1}: Player "${p.player_name}" is not approved by admin yet.`); setSaving(false); return }
+      if (!p) { setSaveErr(`❌ Teammate ${i + 1}: No player found with UID \"${uid}\". Only registered app users can be added.`); setSaving(false); return }
+      if (!p.is_approved) { setSaveErr(`❌ Teammate ${i + 1}: Player \"${p.player_name}\" is not approved by admin yet.`); setSaving(false); return }
     }
 
     const t1 = slots >= 1 ? mates[0].trim() || null : null
@@ -405,7 +476,7 @@ function AlreadyRegisteredPanel({ tournament, reg: initialReg, onUpdated }) {
 
     const conflict = findUidConflict(existingRegs || [], newMates)
     if (conflict) {
-      setSaveErr(`❌ UID "${conflict}" is already registered. Use a different UID.`)
+      setSaveErr(`❌ UID \"${conflict}\" is already registered. Use a different UID.`)
       setSaving(false); return
     }
 
@@ -451,6 +522,12 @@ function AlreadyRegisteredPanel({ tournament, reg: initialReg, onUpdated }) {
             <span className="text-slate-400">Your UID</span>
             <span className="font-mono text-slate-200">{reg.host_uid}</span>
           </div>
+          {isHost && (
+            <div className="flex justify-between">
+              <span className="text-slate-400">Role</span>
+              <span className="text-amber-400 text-[11px] font-semibold">Host 👑</span>
+            </div>
+          )}
           {reg.payment_screenshot_url && (
             <div className="flex justify-between items-center">
               <span className="text-slate-400">Payment</span>
@@ -537,37 +614,23 @@ function AlreadyRegisteredPanel({ tournament, reg: initialReg, onUpdated }) {
         )}
       </div>
 
-      {reg.status === 'confirmed' && (
+      {/* Room code: shown ONLY to the host, only when confirmed */}
+      {reg.status === 'confirmed' && isHost && (
+        <RoomCodeCard tournamentId={tournament.id} />
+      )}
+
+      {/* Non-host confirmed teammates: generic message */}
+      {reg.status === 'confirmed' && !isHost && (
         <div className="card space-y-2">
           <p className="text-xs font-semibold text-slate-300">🎮 Room Details</p>
-          {roomCode && roomVisible ? (
-            <>
-              <div className="flex justify-between text-xs">
-                <span className="text-slate-400">Room ID</span>
-                <span className="font-mono text-slate-100">{roomCode}</span>
-              </div>
-              {roomPass && (
-                <div className="flex justify-between text-xs">
-                  <span className="text-slate-400">Password</span>
-                  <span className="font-mono text-slate-100">{roomPass}</span>
-                </div>
-              )}
-            </>
-          ) : roomCode && !roomVisible ? (
-            <p className="text-[11px] text-amber-400">
-              ⏰ Room details will be visible at {fmtDate(reg.room_reveal_at)}
-            </p>
-          ) : (
-            <p className="text-[11px] text-slate-400">Room details will be shared before the match starts.</p>
-          )}
+          <p className="text-[11px] text-slate-400">Room details are shared with the host of your team. Ask your host for the room ID and password before the match.</p>
         </div>
       )}
     </div>
   )
 }
 
-// ─── Registration Form ─────────────────────────────────────────────────────────
-
+// ─── Registration Form ──────────────────────────────────────────────────────────────────────────────────
 function RegistrationForm({ tournament, onRegistered }) {
   const { player: profile } = usePlayer()
   const slots = teammateCount(tournament.team_size)
@@ -593,7 +656,6 @@ function RegistrationForm({ tournament, onRegistered }) {
 
     const filledMates = mates.slice(0, slots).map(m => m.trim()).filter(Boolean)
 
-    // Approved player check — block if any filled UID is invalid
     for (let i = 0; i < slots; i++) {
       const uid = mates[i].trim()
       if (!uid) continue
@@ -602,15 +664,13 @@ function RegistrationForm({ tournament, onRegistered }) {
         .select('player_name, is_approved')
         .eq('ff_uid', uid)
         .single()
-      if (!p) return setErr(`❌ Teammate ${i + 1}: No player found with UID "${uid}". Only registered app users can be added.`)
-      if (!p.is_approved) return setErr(`❌ Teammate ${i + 1}: Player "${p.player_name}" is not approved by admin yet.`)
+      if (!p) return setErr(`❌ Teammate ${i + 1}: No player found with UID \"${uid}\". Only registered app users can be added.`)
+      if (!p.is_approved) return setErr(`❌ Teammate ${i + 1}: Player \"${p.player_name}\" is not approved by admin yet.`)
     }
 
-    // Duplicate self-check
     if (filledMates.includes(hostUid)) return setErr('❌ Your UID cannot also be a teammate UID.')
     if (new Set(filledMates).size !== filledMates.length) return setErr('❌ Duplicate teammate UIDs found.')
 
-    // Server-side duplicate check
     const { data: existingRegs } = await supabasePlayer
       .from('tournament_registrations')
       .select('host_uid,teammate_uid_1,teammate_uid_2,teammate_uid_3,member_2_uid,member_3_uid,member_4_uid')
@@ -618,7 +678,7 @@ function RegistrationForm({ tournament, onRegistered }) {
 
     const teammateConflict = findUidConflict(existingRegs || [], filledMates)
     if (teammateConflict) {
-      return setErr(`❌ UID "${teammateConflict}" is already registered in this tournament. Use a different UID.`)
+      return setErr(`❌ UID \"${teammateConflict}\" is already registered in this tournament. Use a different UID.`)
     }
     if (filledMates.length !== new Set(filledMates).size) {
       return setErr('❌ Duplicate UIDs in your submission. Each player must have a unique UID.')
@@ -726,13 +786,11 @@ function RegistrationForm({ tournament, onRegistered }) {
     <form onSubmit={handleSubmit} className="card space-y-4">
       <p className="text-xs font-semibold text-slate-300">Register for this tournament</p>
 
-      {/* Host UID */}
       <div className="space-y-1">
         <label className="label">Your FF UID (auto-filled)</label>
         <input type="text" className="input bg-slate-900" value={hostUid} readOnly />
       </div>
 
-      {/* Team name */}
       {slots > 0 && (
         <div className="space-y-1">
           <label className="label">Team Name</label>
@@ -747,7 +805,6 @@ function RegistrationForm({ tournament, onRegistered }) {
         </div>
       )}
 
-      {/* Teammate UIDs */}
       {slots > 0 && (
         <div className="space-y-2">
           <label className="label">Teammate UIDs</label>
@@ -768,7 +825,6 @@ function RegistrationForm({ tournament, onRegistered }) {
         </div>
       )}
 
-      {/* Payment */}
       {hasFee && paymentMode === 'upi' && (
         <div className="space-y-2">
           <label className="label">Entry Fee: ₹{entryFee}</label>
@@ -808,7 +864,7 @@ function RegistrationForm({ tournament, onRegistered }) {
   )
 }
 
-// ─── Main TournamentDetails Page ───────────────────────────────────────────────
+// ─── Main TournamentDetails Page ───────────────────────────────────────────────────────────────────────────
 
 export default function TournamentDetails() {
   const { id } = useParams()
@@ -894,6 +950,7 @@ export default function TournamentDetails() {
         <AlreadyRegisteredPanel
           tournament={tournament}
           reg={myReg}
+          profile={profile}
           onUpdated={loadData}
         />
       )
