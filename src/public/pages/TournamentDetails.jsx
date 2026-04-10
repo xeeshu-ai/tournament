@@ -68,10 +68,6 @@ function fmtDate(iso) {
   }
 }
 
-/**
- * Given a list of registrations and UIDs to check,
- * returns the first UID already present (as host or teammate).
- */
 function findUidConflict(registrations, uidsToCheck) {
   const uids = uidsToCheck.filter(Boolean).map((u) => String(u).trim())
   if (!uids.length) return null
@@ -90,6 +86,225 @@ function findUidConflict(registrations, uidsToCheck) {
     }
   }
   return null
+}
+
+// ─── Tournament Results Component ─────────────────────────────────────────────
+
+function TournamentResults({ tournament }) {
+  const [brScores, setBrScores] = React.useState(null)
+  const [loading, setLoading] = React.useState(false)
+
+  const isBR = tournament.mode === 'br'
+  const isCSorLW = tournament.mode === 'cs' || tournament.mode === 'lw'
+
+  React.useEffect(() => {
+    if (!isBR) return
+    async function fetchBrScores() {
+      setLoading(true)
+      // Find bracket for this tournament
+      const { data: bracket } = await supabasePlayer
+        .from('long_brackets')
+        .select('id')
+        .eq('tournament_id', tournament.id)
+        .maybeSingle()
+
+      if (!bracket) { setLoading(false); return }
+
+      // Find match
+      const { data: match } = await supabasePlayer
+        .from('long_br_matches')
+        .select('id')
+        .eq('bracket_id', bracket.id)
+        .order('round_number', { ascending: true })
+        .limit(1)
+        .maybeSingle()
+
+      if (!match) { setLoading(false); return }
+
+      // Fetch scores
+      const { data: scores } = await supabasePlayer
+        .from('long_br_match_scores')
+        .select('team_name, kills, position, points')
+        .eq('match_id', match.id)
+        .order('points', { ascending: false })
+
+      setBrScores(scores || [])
+      setLoading(false)
+    }
+    fetchBrScores()
+  }, [tournament.id, isBR])
+
+  if (loading) {
+    return (
+      <section className="card flex items-center gap-3 py-5 text-xs text-slate-400">
+        <div className="h-4 w-4 animate-spin rounded-full border-2 border-slate-600 border-t-amber-400" />
+        <p>Loading results…</p>
+      </section>
+    )
+  }
+
+  return (
+    <section className="card space-y-4 border border-amber-700/40 bg-amber-500/5">
+      {/* Header */}
+      <div className="flex items-center gap-2">
+        <span className="text-lg">🏆</span>
+        <h2 className="text-sm font-semibold text-amber-300">Final Results</h2>
+        <span className="ml-auto text-[10px] rounded-full bg-red-600/20 text-red-400 px-2 py-0.5 font-semibold uppercase tracking-wide">
+          Match Ended
+        </span>
+      </div>
+
+      {/* Winner announcement */}
+      {tournament.winner_text && (
+        <div className="rounded-lg bg-amber-500/10 px-3 py-3 ring-1 ring-amber-700/50">
+          <p className="text-xs text-amber-200 whitespace-pre-line">{tournament.winner_text}</p>
+        </div>
+      )}
+
+      {/* BR Scoreboard */}
+      {isBR && brScores && brScores.length > 0 && (
+        <div className="overflow-x-auto">
+          <table className="w-full text-xs">
+            <thead>
+              <tr className="border-b border-slate-700 text-[10px] uppercase tracking-wide text-slate-500">
+                <th className="pb-2 text-left w-8">#</th>
+                <th className="pb-2 text-left">Team</th>
+                <th className="pb-2 text-center">Kills</th>
+                <th className="pb-2 text-center">Position</th>
+                <th className="pb-2 text-right">Points</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-800">
+              {brScores.map((row, i) => (
+                <tr
+                  key={row.team_name}
+                  className={`transition-colors ${i === 0 ? 'bg-amber-500/10' : ''}`}
+                >
+                  <td className="py-2 pr-2">
+                    {i === 0 ? (
+                      <span className="text-amber-400 font-bold">🥇</span>
+                    ) : i === 1 ? (
+                      <span className="text-slate-300 font-bold">🥈</span>
+                    ) : i === 2 ? (
+                      <span className="text-orange-400 font-bold">🥉</span>
+                    ) : (
+                      <span className="text-slate-500">{i + 1}</span>
+                    )}
+                  </td>
+                  <td className={`py-2 font-semibold ${i === 0 ? 'text-amber-300' : 'text-slate-100'}`}>
+                    {row.team_name}
+                  </td>
+                  <td className="py-2 text-center text-slate-300">{row.kills}</td>
+                  <td className="py-2 text-center text-slate-300">#{row.position}</td>
+                  <td className={`py-2 text-right font-bold tabular-nums ${i === 0 ? 'text-amber-300' : 'text-sky-300'}`}>
+                    {typeof row.points === 'number' ? row.points.toFixed(1) : row.points}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* BR: no scores stored yet */}
+      {isBR && brScores !== null && brScores.length === 0 && !tournament.winner_text && (
+        <p className="text-xs text-slate-400">Results will be posted shortly.</p>
+      )}
+
+      {/* CS / LW Matches */}
+      {isCSorLW && tournament.cs_lw_results && (() => {
+        const results = tournament.cs_lw_results
+        const matches = results?.matches || []
+        if (!matches.length) return (
+          <p className="text-xs text-slate-400">Results will be posted shortly.</p>
+        )
+        return (
+          <div className="space-y-4">
+            {matches.map((match, i) => (
+              <div key={i} className="rounded-lg bg-slate-900/60 ring-1 ring-slate-700 overflow-hidden">
+                <div className="px-3 py-2 text-[10px] font-semibold uppercase tracking-wider text-slate-500 bg-slate-900/80 border-b border-slate-800">
+                  Match {i + 1}
+                </div>
+                <div className="grid grid-cols-[1fr_auto_1fr] gap-2 px-3 py-3 text-xs items-start">
+                  {/* Team A */}
+                  <div className={`space-y-1 ${match.winner_team === match.teamA?.name ? 'text-emerald-300' : 'text-slate-200'}`}>
+                    <p className="font-bold text-[11px] truncate">{match.teamA?.name}</p>
+                    <p className="text-slate-400 text-[10px]">Rounds: <span className="text-slate-100 font-semibold">{match.teamA?.rounds_won}</span></p>
+                    {match.winner_team === match.teamA?.name && (
+                      <span className="inline-block text-[9px] rounded-full bg-emerald-600/20 text-emerald-400 px-2 py-0.5 font-semibold">Winner ✓</span>
+                    )}
+                    {match.teamA?.players?.length > 0 && (
+                      <div className="pt-1 space-y-0.5">
+                        {match.teamA.players.map((p, pi) => (
+                          <div key={pi} className="flex justify-between gap-2 text-[10px] text-slate-400">
+                            <span className="truncate">{p.name}</span>
+                            <span className="tabular-nums shrink-0">{p.kills}K/{p.deaths}D</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* VS */}
+                  <div className="text-center text-slate-500 font-bold text-xs pt-1">VS</div>
+
+                  {/* Team B */}
+                  <div className={`space-y-1 text-right ${match.winner_team === match.teamB?.name ? 'text-emerald-300' : 'text-slate-200'}`}>
+                    <p className="font-bold text-[11px] truncate">{match.teamB?.name}</p>
+                    <p className="text-slate-400 text-[10px]">Rounds: <span className="text-slate-100 font-semibold">{match.teamB?.rounds_won}</span></p>
+                    {match.winner_team === match.teamB?.name && (
+                      <span className="inline-block text-[9px] rounded-full bg-emerald-600/20 text-emerald-400 px-2 py-0.5 font-semibold">Winner ✓</span>
+                    )}
+                    {match.teamB?.players?.length > 0 && (
+                      <div className="pt-1 space-y-0.5">
+                        {match.teamB.players.map((p, pi) => (
+                          <div key={pi} className="flex justify-between gap-2 text-[10px] text-slate-400">
+                            <span className="tabular-nums shrink-0">{p.kills}K/{p.deaths}D</span>
+                            <span className="truncate">{p.name}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )
+      })()}
+
+      {/* No results at all */}
+      {!tournament.winner_text && !isBR && !isCSorLW && (
+        <p className="text-xs text-slate-400">Results will be posted shortly.</p>
+      )}
+    </section>
+  )
+}
+
+// ─── Ended Tournament Right Panel ─────────────────────────────────────────────
+
+function EndedTournamentPanel({ tournament }) {
+  return (
+    <div className="card space-y-3 text-xs text-slate-300 border border-red-900/40 bg-red-500/5">
+      <div className="flex items-center gap-2">
+        <span className="text-base">🏁</span>
+        <h2 className="text-sm font-semibold text-red-400">Tournament Ended</h2>
+      </div>
+      <p className="text-slate-400">
+        This tournament has concluded. Check the results section below.
+      </p>
+      {tournament.youtube_live_url && (
+        <a
+          href={tournament.youtube_live_url}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="btn-primary w-full text-center text-xs block"
+        >
+          📺 Watch on YouTube
+        </a>
+      )}
+    </div>
+  )
 }
 
 // ─── Already Registered Panel (with teammate editor + room code) ───
@@ -153,7 +368,6 @@ function AlreadyRegisteredPanel({ registration: initialReg, tournament, allRegs,
     setSaveErr(null)
     setSaveOk(false)
 
-    // Use allRegs passed from parent (fetched separately, not filtered by RLS)
     const otherRegs = (allRegs || []).filter((r) => r.id !== reg.id)
     const newMates = mates.map((m) => m.trim()).filter(Boolean)
 
@@ -211,6 +425,31 @@ function AlreadyRegisteredPanel({ registration: initialReg, tournament, allRegs,
 
   const matchTime = fmtDate(tournament.start_time)
   const closesTime = fmtDate(closesAt)
+
+  // If tournament ended, show ended panel instead of edit panel
+  if (tournament.status === 'ended') {
+    return (
+      <div className="space-y-3">
+        <EndedTournamentPanel tournament={tournament} />
+        <div className="card space-y-2 text-xs text-slate-300 border border-slate-700">
+          <div className="flex items-center gap-2">
+            <span className="text-base">✅</span>
+            <p className="text-sm font-semibold text-emerald-400">You participated!</p>
+          </div>
+          <div className="rounded-lg bg-slate-900/80 px-3 py-2 space-y-1.5 ring-1 ring-slate-700 text-[11px]">
+            <div className="flex justify-between gap-2">
+              <span className="text-slate-400">Team</span>
+              <span className="font-semibold text-slate-100">{reg.team_name}</span>
+            </div>
+            <div className="flex justify-between gap-2">
+              <span className="text-slate-400">Your UID</span>
+              <span className="font-mono text-slate-200">{reg.host_uid}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="card space-y-3 text-xs text-slate-200">
@@ -499,7 +738,6 @@ function RegistrationForm({ tournament, allRegs, onRegistered }) {
     if (!teamName.trim()) return setErr('Team name is required.')
     if (!hostUid) return setErr('Could not read your UID from profile. Please refresh.')
 
-    // Use allRegs passed from parent for conflict checks
     const existingRegs = allRegs || []
     const filledMates = mates.map((m) => m.trim()).filter(Boolean)
     const allNewUids = [hostUid, ...filledMates]
@@ -701,18 +939,16 @@ export function TournamentDetails() {
   const { id } = useParams()
   const { profile } = usePlayer()
   const [tournament, setTournament] = React.useState(null)
-  const [allRegs, setAllRegs] = React.useState([])   // all registrations for this tournament
-  const [myReg, setMyReg] = React.useState(null)      // this player's own registration (as host)
-  const [addedAsTeammate, setAddedAsTeammate] = React.useState(null) // reg where player is a teammate
+  const [allRegs, setAllRegs] = React.useState([])
+  const [myReg, setMyReg] = React.useState(null)
+  const [addedAsTeammate, setAddedAsTeammate] = React.useState(null)
   const [loading, setLoading] = React.useState(true)
   const [error, setError] = React.useState(null)
 
   async function load(ignoreOrBool) {
-    // ignoreOrBool can be an ignore flag (boolean) or false when called manually
     const ignore = ignoreOrBool === true
     setLoading(true)
 
-    // 1. Fetch tournament (without embedding registrations — RLS would filter them)
     const { data: tData, error: tErr } = await supabasePlayer
       .from('tournaments')
       .select('*, long_brackets(*, long_br_matches(*))')
@@ -729,7 +965,6 @@ export function TournamentDetails() {
     }
     setTournament(tData)
 
-    // 2. Fetch ALL registrations for this tournament (needs RLS policy: allow read for all logged-in users)
     const { data: regsData, error: regsErr } = await supabasePlayer
       .from('tournament_registrations')
       .select('id, tournament_id, host_uid, team_name, status, teammate_uid_1, teammate_uid_2, teammate_uid_3, member_2_uid, member_3_uid, member_4_uid')
@@ -743,7 +978,6 @@ export function TournamentDetails() {
     const regs = regsData || []
     setAllRegs(regs)
 
-    // 3. Determine if current player is registered (as host or teammate)
     const myUid = profile?.ff_uid || null
     if (myUid) {
       const asHost = regs.find((r) => r.host_uid === myUid) || null
@@ -774,12 +1008,51 @@ export function TournamentDetails() {
   if (loading) return <p className="text-xs text-slate-400">Loading tournament…</p>
   if (error || !tournament) return <p className="text-xs text-red-400">{error || 'Tournament not found.'}</p>
 
+  const isEnded = tournament.status === 'ended'
   const registrationOpen = tournament.registration_status === 'open'
   const isFull = tournament.filled_slots >= tournament.max_slots
   const matchTime = fmtDate(tournament.start_time)
   const closesTime = fmtDate(tournament.entry_closing_time)
 
   function renderRightPanel() {
+    // Tournament ended — always show ended panel in right column
+    if (isEnded) {
+      if (myReg) {
+        return (
+          <AlreadyRegisteredPanel
+            registration={myReg}
+            tournament={tournament}
+            allRegs={allRegs}
+            onUpdated={() => load(false)}
+          />
+        )
+      }
+      if (addedAsTeammate) {
+        return (
+          <div className="space-y-3">
+            <EndedTournamentPanel tournament={tournament} />
+            <div className="card space-y-2 text-xs text-slate-300 border border-slate-700">
+              <div className="flex items-center gap-2">
+                <span className="text-base">👥</span>
+                <p className="text-sm font-semibold text-sky-400">You participated!</p>
+              </div>
+              <div className="rounded-lg bg-slate-900/80 px-3 py-2 ring-1 ring-slate-700 text-[11px] space-y-1.5">
+                <div className="flex justify-between gap-2">
+                  <span className="text-slate-400">Team</span>
+                  <span className="font-semibold text-slate-100">{addedAsTeammate.team_name}</span>
+                </div>
+                <div className="flex justify-between gap-2">
+                  <span className="text-slate-400">Host UID</span>
+                  <span className="font-mono text-slate-200">{addedAsTeammate.host_uid}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        )
+      }
+      return <EndedTournamentPanel tournament={tournament} />
+    }
+
     if (myReg) {
       return (
         <AlreadyRegisteredPanel
@@ -849,6 +1122,9 @@ export function TournamentDetails() {
           <span className="rounded-full bg-slate-800 px-2 py-0.5 text-slate-300">{modeBadgeLabel(tournament)}</span>
           {tournament.map && <span className="rounded-full bg-slate-800 px-2 py-0.5 text-slate-300">Map: {tournament.map}</span>}
           {tournament.team_size && <span className="rounded-full bg-slate-800 px-2 py-0.5 text-slate-300">{teamSizeLabel(tournament.team_size)}</span>}
+          {isEnded && (
+            <span className="rounded-full bg-red-600/20 text-red-400 px-2 py-0.5 font-semibold">🏁 Ended</span>
+          )}
         </div>
         <h1 className="text-2xl font-semibold tracking-tight text-slate-50">{tournament.title}</h1>
         <div className="flex flex-wrap gap-4 text-[11px] text-slate-400">
@@ -890,11 +1166,9 @@ export function TournamentDetails() {
             <a href="/rules" className="mt-2 inline-block text-[11px] text-sky-400 hover:text-sky-300 transition-colors">View full rules →</a>
           </section>
 
-          {tournament.winner_text && (
-            <section className="card space-y-2">
-              <h2 className="text-sm font-semibold text-amber-300">🥇 Results</h2>
-              <p className="text-xs text-slate-300 whitespace-pre-line">{tournament.winner_text}</p>
-            </section>
+          {/* ─── Results section: shown when tournament is ended ─── */}
+          {isEnded && (
+            <TournamentResults tournament={tournament} />
           )}
 
           {tournament.youtube_live_url && (
@@ -906,7 +1180,7 @@ export function TournamentDetails() {
             </section>
           )}
 
-          {/* Registered Teams list — uses allRegs fetched directly */}
+          {/* Registered Teams list */}
           {allRegs.length > 0 && (
             <section className="card space-y-3">
               <h2 className="text-sm font-semibold text-slate-50">Registered Teams ({allRegs.length}/{tournament.max_slots})</h2>
