@@ -344,25 +344,22 @@ function EndedTournamentPanel({ tournament }) {
 
 function RoomCodeCard({ tournamentId }) {
   const [roomCode, setRoomCode] = React.useState(undefined) // undefined = loading
-  const [now, setNow] = React.useState(() => new Date())
 
   React.useEffect(() => {
     async function fetchRoom() {
       const { data } = await supabasePlayer
         .from('room_codes')
-        .select('room_id, room_password, reveal_at')
+        .select('room_id, room_password, is_revealed')
         .eq('tournament_id', tournamentId)
         .maybeSingle()
       setRoomCode(data || null)
     }
     fetchRoom()
-  }, [tournamentId])
 
-  // tick every 30s to re-check reveal time
-  React.useEffect(() => {
-    const timer = setInterval(() => setNow(new Date()), 30_000)
-    return () => clearInterval(timer)
-  }, [])
+    // Poll every 15s so the card auto-updates when admin reveals the code
+    const interval = setInterval(fetchRoom, 15_000)
+    return () => clearInterval(interval)
+  }, [tournamentId])
 
   if (roomCode === undefined) {
     return (
@@ -383,15 +380,12 @@ function RoomCodeCard({ tournamentId }) {
     )
   }
 
-  const revealAt = roomCode.reveal_at ? new Date(roomCode.reveal_at) : null
-  const isRevealed = !revealAt || now >= revealAt
-
-  if (!isRevealed) {
+  if (!roomCode.is_revealed) {
     return (
       <div className="card space-y-2">
         <p className="text-xs font-semibold text-slate-300">🎮 Room Details <span className="text-[10px] text-amber-400 font-normal ml-1">(Host only)</span></p>
         <p className="text-[11px] text-amber-400">
-          ⏰ Room details will be visible at {fmtDate(roomCode.reveal_at)}
+          ⏳ Room details haven't been revealed yet. Check back closer to match time.
         </p>
         <p className="text-[10px] text-slate-500">Once revealed, share the room ID and password with your teammates.</p>
       </div>
@@ -439,7 +433,6 @@ function AlreadyRegisteredPanel({ tournament, reg: initialReg, profile, onUpdate
     ])
   }, [initialReg])
 
-  // Is the current logged-in player the host of this registration?
   const isHost = profile?.ff_uid && String(profile.ff_uid).trim() === String(reg.host_uid).trim()
 
   async function handleSaveMates() {
@@ -453,8 +446,8 @@ function AlreadyRegisteredPanel({ tournament, reg: initialReg, profile, onUpdate
         .select('full_name, is_verified')
         .eq('ff_uid', uid)
         .single()
-      if (!p) { setSaveErr(`❌ Teammate ${i + 1}: No player found with UID \"${uid}\". Only registered app users can be added.`); setSaving(false); return }
-      if (!p.is_verified) { setSaveErr(`❌ Teammate ${i + 1}: Player \"${p.full_name}\" is not approved by admin yet.`); setSaving(false); return }
+      if (!p) { setSaveErr(`❌ Teammate ${i + 1}: No player found with UID "${uid}". Only registered app users can be added.`); setSaving(false); return }
+      if (!p.is_verified) { setSaveErr(`❌ Teammate ${i + 1}: Player "${p.full_name}" is not approved by admin yet.`); setSaving(false); return }
     }
 
     const t1 = slots >= 1 ? mates[0].trim() || null : null
@@ -476,7 +469,7 @@ function AlreadyRegisteredPanel({ tournament, reg: initialReg, profile, onUpdate
 
     const conflict = findUidConflict(existingRegs || [], newMates)
     if (conflict) {
-      setSaveErr(`❌ UID \"${conflict}\" is already registered. Use a different UID.`)
+      setSaveErr(`❌ UID "${conflict}" is already registered. Use a different UID.`)
       setSaving(false); return
     }
 
@@ -664,8 +657,8 @@ function RegistrationForm({ tournament, onRegistered }) {
         .select('full_name, is_verified')
         .eq('ff_uid', uid)
         .single()
-      if (!p) return setErr(`❌ Teammate ${i + 1}: No player found with UID \"${uid}\". Only registered app users can be added.`)
-      if (!p.is_verified) return setErr(`❌ Teammate ${i + 1}: Player \"${p.full_name}\" is not approved by admin yet.`)
+      if (!p) return setErr(`❌ Teammate ${i + 1}: No player found with UID "${uid}". Only registered app users can be added.`)
+      if (!p.is_verified) return setErr(`❌ Teammate ${i + 1}: Player "${p.full_name}" is not approved by admin yet.`)
     }
 
     if (filledMates.includes(hostUid)) return setErr('❌ Your UID cannot also be a teammate UID.')
@@ -678,7 +671,7 @@ function RegistrationForm({ tournament, onRegistered }) {
 
     const teammateConflict = findUidConflict(existingRegs || [], filledMates)
     if (teammateConflict) {
-      return setErr(`❌ UID \"${teammateConflict}\" is already registered in this tournament. Use a different UID.`)
+      return setErr(`❌ UID "${teammateConflict}" is already registered in this tournament. Use a different UID.`)
     }
     if (filledMates.length !== new Set(filledMates).size) {
       return setErr('❌ Duplicate UIDs in your submission. Each player must have a unique UID.')
