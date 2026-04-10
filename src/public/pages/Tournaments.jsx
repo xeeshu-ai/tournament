@@ -2,13 +2,7 @@ import React from 'react'
 import { Link } from 'react-router-dom'
 import { supabasePlayer } from '../../lib/supabaseClient'
 import { usePlayer } from '../../lib/PlayerContext'
-import { TOURNAMENT_TYPES, FF_MODES } from '../../lib/constants'
-
-/** Always derive mode label from t.mode — never trust the stored mode_label column */
-function getModeLabel(t) {
-  if (!t?.mode) return t?.mode_label || ''
-  return FF_MODES.find((m) => m.id === t.mode)?.label || t.mode_label || t.mode
-}
+import { TOURNAMENT_TYPES, FF_MODES, getModeLabel } from '../../lib/constants'
 
 export function Tournaments() {
   const { profile } = usePlayer()
@@ -127,7 +121,7 @@ export function Tournaments() {
                 <p className="mt-1 text-xs text-slate-300 line-clamp-2">{t.prize_text}</p>
                 <div className="mt-3 flex flex-wrap items-center justify-between gap-3 text-[11px] text-slate-300">
                   <div className="flex flex-wrap items-center gap-3">
-                    <span>Entry fee: {Number(t.entry_fee) === 0 ? 'FREE' : `₹${t.entry_fee}`}</span>
+                    <span>Entry fee: {Number(t.entry_fee) === 0 ? 'FREE' : `\u20b9${t.entry_fee}`}</span>
                     <span>Slots: {t.filled_slots}/{t.max_slots}</span>
                     <span>Req: Level 45+, Diamond 1+</span>
                   </div>
