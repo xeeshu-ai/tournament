@@ -34,28 +34,31 @@ export function Tournaments() {
     return () => { ignore = true }
   }, [])
 
-  // Load which tournaments this player has already registered for (as host or teammate)
+  // Load which tournaments this player has registered for (as host OR teammate)
   React.useEffect(() => {
     if (!profile?.ff_uid) { setMyRegistrations([]); return }
     let ignore = false
     async function loadMyRegs() {
       const uid = profile.ff_uid
-      // Fetch registrations where this player is the host
+
+      // Fetch as host — RLS allows this (host_player_id = auth.uid())
       const { data: asHost } = await supabasePlayer
         .from('tournament_registrations')
         .select('tournament_id')
         .eq('host_uid', uid)
-      // Fetch registrations where this player is a teammate
+
+      // Fetch as teammate — RLS policy must allow uid in teammate cols
+      // (after policy fix: allow select where host_uid=uid OR teammate_uid_1=uid etc.)
       const { data: asTeammate } = await supabasePlayer
         .from('tournament_registrations')
         .select('tournament_id')
         .or(
           `teammate_uid_1.eq.${uid},teammate_uid_2.eq.${uid},teammate_uid_3.eq.${uid}`
         )
+
       if (!ignore) {
         const hostIds = (asHost || []).map((r) => r.tournament_id)
         const teammateIds = (asTeammate || []).map((r) => r.tournament_id)
-        // Deduplicate
         setMyRegistrations([...new Set([...hostIds, ...teammateIds])])
       }
     }
@@ -116,7 +119,6 @@ export function Tournaments() {
                   )}
                 </div>
                 <h2 className="mt-3 text-sm font-semibold text-slate-50">{t.title}</h2>
-                {/* prize_text is the correct column — prize_summary does not exist */}
                 <p className="mt-1 text-xs text-slate-300 line-clamp-2">{t.prize_text}</p>
                 <div className="mt-3 flex flex-wrap items-center justify-between gap-3 text-[11px] text-slate-300">
                   <div className="flex flex-wrap items-center gap-3">
