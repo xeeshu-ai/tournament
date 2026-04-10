@@ -7,6 +7,54 @@ import { getModeLabel } from '../../lib/constants'
 // ─── Razorpay key ───────────────────────────────────────────────────────────────────
 const RZP_KEY = import.meta.env.VITE_RAZORPAY_KEY_ID || 'rzp_test_SaUtkNyiEDfrAm'
 
+// ─── Teammate UID Validator ────────────────────────────────────────────────────
+function useUidValidation(uid, hostUid) {
+  const [state, setState] = React.useState({ status: 'idle', name: null })
+  React.useEffect(() => {
+    const trimmed = uid.trim()
+    if (!trimmed) { setState({ status: 'idle', name: null }); return }
+    if (trimmed === hostUid) { setState({ status: 'invalid', name: null, msg: "That's your own UID" }); return }
+    setState({ status: 'checking', name: null })
+    const timer = setTimeout(async () => {
+      const { data } = await supabasePlayer
+        .from('players')
+        .select('player_name, is_approved')
+        .eq('ff_uid', trimmed)
+        .single()
+      if (data && data.is_approved) {
+        setState({ status: 'valid', name: data.player_name })
+      } else if (data && !data.is_approved) {
+        setState({ status: 'invalid', name: null, msg: 'Player not approved yet' })
+      } else {
+        setState({ status: 'invalid', name: null, msg: 'No player found with this UID' })
+      }
+    }, 500)
+    return () => clearTimeout(timer)
+  }, [uid, hostUid])
+  return state
+}
+
+// ─── Single validated teammate input ──────────────────────────────────────────
+function TeammateInput({ index, value, onChange, hostUid }) {
+  const v = useUidValidation(value, hostUid)
+  return (
+    <div className="space-y-0.5">
+      <div className="flex items-center gap-2">
+        <input
+          type="text"
+          className={`input flex-1 ${v.status === 'valid' ? 'border-emerald-500/60' : v.status === 'invalid' ? 'border-red-500/60' : ''}`}
+          placeholder={`Teammate ${index + 1} FF UID`}
+          value={value}
+          onChange={e => onChange(e.target.value)}
+        />
+        {v.status === 'checking' && <span className="text-[11px] text-slate-400 animate-pulse whitespace-nowrap">checking…</span>}
+        {v.status === 'valid' && <span className="text-[11px] text-emerald-400 whitespace-nowrap">✅ {v.name}</span>}
+      </div>
+      {v.status === 'invalid' && <p className="text-[11px] text-red-400 pl-1">❌ {v.msg}</p>}
+    </div>
+  )
+}
+
 // ─── helpers ───────────────────────────────────────────────────────────────────
 
 function teammateCount(teamSize) {
@@ -101,7 +149,6 @@ function TournamentResults({ tournament }) {
     if (!isBR) return
     async function fetchBrScores() {
       setLoading(true)
-      // Find bracket for this tournament
       const { data: bracket } = await supabasePlayer
         .from('long_brackets')
         .select('id')
@@ -110,7 +157,6 @@ function TournamentResults({ tournament }) {
 
       if (!bracket) { setLoading(false); return }
 
-      // Find match
       const { data: match } = await supabasePlayer
         .from('long_br_matches')
         .select('id')
@@ -121,7 +167,6 @@ function TournamentResults({ tournament }) {
 
       if (!match) { setLoading(false); return }
 
-      // Fetch scores
       const { data: scores } = await supabasePlayer
         .from('long_br_match_scores')
         .select('team_name, kills, position, points, player_names')
@@ -145,7 +190,6 @@ function TournamentResults({ tournament }) {
 
   return (
     <section className="card space-y-4 border border-amber-700/40 bg-amber-500/5">
-      {/* Header */}
       <div className="flex items-center gap-2">
         <span className="text-lg">🏆</span>
         <h2 className="text-sm font-semibold text-amber-300">Final Results</h2>
@@ -154,14 +198,12 @@ function TournamentResults({ tournament }) {
         </span>
       </div>
 
-      {/* Winner announcement */}
       {tournament.winner_text && (
         <div className="rounded-lg bg-amber-500/10 px-3 py-3 ring-1 ring-amber-700/50">
           <p className="text-xs text-amber-200 whitespace-pre-line">{tournament.winner_text}</p>
         </div>
       )}
 
-      {/* BR Scoreboard */}
       {isBR && brScores && brScores.length > 0 && (
         <div className="overflow-x-auto">
           <table className="w-full text-xs">
@@ -213,12 +255,10 @@ function TournamentResults({ tournament }) {
         </div>
       )}
 
-      {/* BR: no scores stored yet */}
       {isBR && brScores !== null && brScores.length === 0 && !tournament.winner_text && (
         <p className="text-xs text-slate-400">Results will be posted shortly.</p>
       )}
 
-      {/* CS / LW Matches */}
       {isCSorLW && tournament.cs_lw_results && (() => {
         const results = tournament.cs_lw_results
         const matches = results?.matches || []
@@ -233,7 +273,6 @@ function TournamentResults({ tournament }) {
                   Match {i + 1}
                 </div>
                 <div className="grid grid-cols-[1fr_auto_1fr] gap-2 px-3 py-3 text-xs items-start">
-                  {/* Team A */}
                   <div className={`space-y-1 ${match.winner_team === match.teamA?.name ? 'text-emerald-300' : 'text-slate-200'}`}>
                     <p className="font-bold text-[11px] truncate">{match.teamA?.name}</p>
                     <p className="text-slate-400 text-[10px]">Rounds: <span className="text-slate-100 font-semibold">{match.teamA?.rounds_won}</span></p>
@@ -252,10 +291,8 @@ function TournamentResults({ tournament }) {
                     )}
                   </div>
 
-                  {/* VS */}
                   <div className="text-center text-slate-500 font-bold text-xs pt-1">VS</div>
 
-                  {/* Team B */}
                   <div className={`space-y-1 text-right ${match.winner_team === match.teamB?.name ? 'text-emerald-300' : 'text-slate-200'}`}>
                     <p className="font-bold text-[11px] truncate">{match.teamB?.name}</p>
                     <p className="text-slate-400 text-[10px]">Rounds: <span className="text-slate-100 font-semibold">{match.teamB?.rounds_won}</span></p>
@@ -280,7 +317,6 @@ function TournamentResults({ tournament }) {
         )
       })()}
 
-      {/* No results at all */}
       {!tournament.winner_text && !isBR && !isCSorLW && (
         <p className="text-xs text-slate-400">Results will be posted shortly.</p>
       )}
@@ -336,12 +372,25 @@ function AlreadyRegisteredPanel({ tournament, reg: initialReg, onUpdated }) {
 
   async function handleSaveMates() {
     setSaving(true); setSaveErr(''); setSaveOk(false)
+
+    // Validate teammate UIDs are approved players
+    for (let i = 0; i < slots; i++) {
+      const uid = mates[i]?.trim()
+      if (!uid) continue
+      const { data: p } = await supabasePlayer
+        .from('players')
+        .select('player_name, is_approved')
+        .eq('ff_uid', uid)
+        .single()
+      if (!p) { setSaveErr(`❌ Teammate ${i + 1}: No player found with UID "${uid}". Only registered app users can be added.`); setSaving(false); return }
+      if (!p.is_approved) { setSaveErr(`❌ Teammate ${i + 1}: Player "${p.player_name}" is not approved by admin yet.`); setSaving(false); return }
+    }
+
     const t1 = slots >= 1 ? mates[0].trim() || null : null
     const t2 = slots >= 2 ? mates[1].trim() || null : null
     const t3 = slots >= 3 ? mates[2].trim() || null : null
     const newMates = [t1, t2, t3].filter(Boolean)
 
-    // Check duplicates against existing registrations
     const { data: existingRegs } = await supabasePlayer
       .from('tournament_registrations')
       .select('host_uid,teammate_uid_1,teammate_uid_2,teammate_uid_3,member_2_uid,member_3_uid,member_4_uid')
@@ -385,7 +434,6 @@ function AlreadyRegisteredPanel({ tournament, reg: initialReg, onUpdated }) {
 
   return (
     <div className="space-y-4">
-      {/* Registration status card */}
       <div className="card space-y-3">
         <div className="flex items-center justify-between">
           <span className="text-xs font-semibold text-slate-300">Your Registration</span>
@@ -418,7 +466,6 @@ function AlreadyRegisteredPanel({ tournament, reg: initialReg, onUpdated }) {
           )}
         </div>
 
-        {/* Teammates */}
         {slots > 0 && (
           <div className="space-y-2">
             <div className="flex items-center justify-between">
@@ -436,19 +483,20 @@ function AlreadyRegisteredPanel({ tournament, reg: initialReg, onUpdated }) {
             {editing ? (
               <div className="space-y-2">
                 {Array.from({ length: slots }).map((_, i) => (
-                  <div key={i} className="flex items-center gap-2">
-                    <span className="text-[10px] text-slate-500 w-16">Teammate {i + 1}</span>
-                    <input
-                      type="text"
-                      className="input flex-1 text-xs"
-                      placeholder="FF UID"
-                      value={mates[i] || ''}
-                      onChange={e => {
-                        const next = [...mates]
-                        next[i] = e.target.value
-                        setMates(next)
-                      }}
-                    />
+                  <div key={i} className="flex items-start gap-2">
+                    <span className="text-[10px] text-slate-500 w-16 pt-2">Teammate {i + 1}</span>
+                    <div className="flex-1">
+                      <TeammateInput
+                        index={i}
+                        value={mates[i] || ''}
+                        hostUid={reg.host_uid}
+                        onChange={val => {
+                          const next = [...mates]
+                          next[i] = val
+                          setMates(next)
+                        }}
+                      />
+                    </div>
                   </div>
                 ))}
                 {saveErr && <p className="text-[11px] text-red-400">{saveErr}</p>}
@@ -489,7 +537,6 @@ function AlreadyRegisteredPanel({ tournament, reg: initialReg, onUpdated }) {
         )}
       </div>
 
-      {/* Room code */}
       {reg.status === 'confirmed' && (
         <div className="card space-y-2">
           <p className="text-xs font-semibold text-slate-300">🎮 Room Details</p>
@@ -545,6 +592,19 @@ function RegistrationForm({ tournament, onRegistered }) {
     if (slots > 0 && !teamName.trim()) return setErr('Enter your team name.')
 
     const filledMates = mates.slice(0, slots).map(m => m.trim()).filter(Boolean)
+
+    // Approved player check — block if any filled UID is invalid
+    for (let i = 0; i < slots; i++) {
+      const uid = mates[i].trim()
+      if (!uid) continue
+      const { data: p } = await supabasePlayer
+        .from('players')
+        .select('player_name, is_approved')
+        .eq('ff_uid', uid)
+        .single()
+      if (!p) return setErr(`❌ Teammate ${i + 1}: No player found with UID "${uid}". Only registered app users can be added.`)
+      if (!p.is_approved) return setErr(`❌ Teammate ${i + 1}: Player "${p.player_name}" is not approved by admin yet.`)
+    }
 
     // Duplicate self-check
     if (filledMates.includes(hostUid)) return setErr('❌ Your UID cannot also be a teammate UID.')
@@ -691,17 +751,16 @@ function RegistrationForm({ tournament, onRegistered }) {
       {slots > 0 && (
         <div className="space-y-2">
           <label className="label">Teammate UIDs</label>
-          <p className="text-[11px] text-amber-300">💡 You can still add or update teammate UIDs from this page before entries close.</p>
+          <p className="text-[11px] text-amber-300">💡 Only players registered and approved on this app can be added as teammates.</p>
           {Array.from({ length: slots }).map((_, i) => (
-            <input
+            <TeammateInput
               key={i}
-              type="text"
-              className="input"
-              placeholder={`Teammate ${i + 1} FF UID`}
+              index={i}
               value={mates[i] || ''}
-              onChange={e => {
+              hostUid={hostUid}
+              onChange={val => {
                 const next = [...mates]
-                next[i] = e.target.value
+                next[i] = val
                 setMates(next)
               }}
             />
@@ -902,7 +961,6 @@ export default function TournamentDetails() {
         {/* Left column */}
         <div className="space-y-4">
 
-          {/* Rules / info */}
           {tournament.rules && (
             <section className="card space-y-2">
               <h2 className="text-xs font-semibold text-slate-300 uppercase tracking-wider">📜 Rules</h2>
@@ -910,7 +968,6 @@ export default function TournamentDetails() {
             </section>
           )}
 
-          {/* Schedule */}
           {(tournament.start_time || tournament.end_time) && (
             <section className="card space-y-2">
               <h2 className="text-xs font-semibold text-slate-300 uppercase tracking-wider">📅 Schedule</h2>
@@ -931,7 +988,6 @@ export default function TournamentDetails() {
             </section>
           )}
 
-          {/* Registered teams */}
           {allRegs.length > 0 && (
             <section className="card space-y-2">
               <h2 className="text-xs font-semibold text-slate-300 uppercase tracking-wider">
