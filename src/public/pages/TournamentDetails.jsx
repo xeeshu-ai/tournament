@@ -344,6 +344,7 @@ function EndedTournamentPanel({ tournament }) {
 
 function RoomCodeCard({ tournamentId }) {
   const [roomCode, setRoomCode] = React.useState(undefined) // undefined = loading
+  const [shown, setShown] = React.useState(false)
 
   React.useEffect(() => {
     async function fetchRoom() {
@@ -353,6 +354,8 @@ function RoomCodeCard({ tournamentId }) {
         .eq('tournament_id', tournamentId)
         .maybeSingle()
       setRoomCode(data || null)
+      // Auto-hide if admin un-reveals
+      if (!data?.is_revealed) setShown(false)
     }
     fetchRoom()
 
@@ -394,18 +397,38 @@ function RoomCodeCard({ tournamentId }) {
 
   return (
     <div className="card space-y-3 border border-emerald-800/40 bg-emerald-500/5">
-      <p className="text-xs font-semibold text-emerald-300">🎮 Room Details <span className="text-[10px] text-amber-400 font-normal ml-1">(Host only — share with teammates)</span></p>
-      <div className="space-y-2">
-        <div className="flex items-center justify-between rounded-lg bg-slate-900/60 px-3 py-2">
-          <span className="text-[11px] text-slate-400">Room ID</span>
-          <span className="font-mono text-sm font-bold text-slate-50 tracking-wider select-all">{roomCode.room_id}</span>
-        </div>
-        <div className="flex items-center justify-between rounded-lg bg-slate-900/60 px-3 py-2">
-          <span className="text-[11px] text-slate-400">Password</span>
-          <span className="font-mono text-sm font-bold text-slate-50 tracking-wider select-all">{roomCode.room_password}</span>
-        </div>
+      <div className="flex items-center justify-between">
+        <p className="text-xs font-semibold text-emerald-300">
+          🎮 Room Details
+          <span className="text-[10px] text-amber-400 font-normal ml-1">(Host only — share with teammates)</span>
+        </p>
+        <button
+          onClick={() => setShown(s => !s)}
+          className={`shrink-0 rounded-lg px-3 py-1.5 text-[11px] font-semibold transition-colors ${
+            shown
+              ? 'bg-slate-700/60 text-slate-300 hover:bg-slate-700 border border-slate-600/40'
+              : 'bg-emerald-600/20 text-emerald-400 hover:bg-emerald-600/30 border border-emerald-700/40'
+          }`}
+        >
+          {shown ? '🙈 Hide' : '👁 Reveal'}
+        </button>
       </div>
-      <p className="text-[10px] text-slate-500">📤 Share this with your teammates. Do not post publicly.</p>
+
+      {shown ? (
+        <div className="space-y-2">
+          <div className="flex items-center justify-between rounded-lg bg-slate-900/60 px-3 py-2">
+            <span className="text-[11px] text-slate-400">Room ID</span>
+            <span className="font-mono text-sm font-bold text-slate-50 tracking-wider select-all">{roomCode.room_id}</span>
+          </div>
+          <div className="flex items-center justify-between rounded-lg bg-slate-900/60 px-3 py-2">
+            <span className="text-[11px] text-slate-400">Password</span>
+            <span className="font-mono text-sm font-bold text-slate-50 tracking-wider select-all">{roomCode.room_password}</span>
+          </div>
+          <p className="text-[10px] text-slate-500">📤 Share this with your teammates. Do not post publicly.</p>
+        </div>
+      ) : (
+        <p className="text-[11px] text-slate-400">Tap <span className="text-emerald-400 font-semibold">Reveal</span> to view the room ID and password.</p>
+      )}
     </div>
   )
 }
