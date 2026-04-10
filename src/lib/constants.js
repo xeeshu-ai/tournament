@@ -23,10 +23,14 @@ export const TOURNAMENT_TYPES = [
   { id: 'long', label: 'Long Tournament' }
 ]
 
-/** Derive the correct mode label from t.mode — never trust the stored mode_label column */
+/**
+ * Derive the correct mode label from t.mode ONLY.
+ * Never trust the stored mode_label column — it can be stale/wrong.
+ * Falls back to raw t.mode string if no match found (safe default).
+ */
 export function getModeLabel(t) {
-  if (!t?.mode) return t?.mode_label || ''
-  return FF_MODES.find((m) => m.id === t.mode)?.label || t.mode_label || t.mode
+  if (!t?.mode) return ''
+  return FF_MODES.find((m) => m.id === t.mode)?.label || t.mode
 }
 
 export function calculateBrPoints(kills, position) {
