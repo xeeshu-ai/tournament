@@ -18,12 +18,12 @@ function useUidValidation(uid, hostUid) {
     const timer = setTimeout(async () => {
       const { data } = await supabasePlayer
         .from('players')
-        .select('player_name, is_approved')
+        .select('full_name, is_verified')
         .eq('ff_uid', trimmed)
         .single()
-      if (data && data.is_approved) {
-        setState({ status: 'valid', name: data.player_name })
-      } else if (data && !data.is_approved) {
+      if (data && data.is_verified) {
+        setState({ status: 'valid', name: data.full_name })
+      } else if (data && !data.is_verified) {
         setState({ status: 'invalid', name: null, msg: 'Player not approved yet' })
       } else {
         setState({ status: 'invalid', name: null, msg: 'No player found with this UID' })
@@ -450,11 +450,11 @@ function AlreadyRegisteredPanel({ tournament, reg: initialReg, profile, onUpdate
       if (!uid) continue
       const { data: p } = await supabasePlayer
         .from('players')
-        .select('player_name, is_approved')
+        .select('full_name, is_verified')
         .eq('ff_uid', uid)
         .single()
       if (!p) { setSaveErr(`❌ Teammate ${i + 1}: No player found with UID \"${uid}\". Only registered app users can be added.`); setSaving(false); return }
-      if (!p.is_approved) { setSaveErr(`❌ Teammate ${i + 1}: Player \"${p.player_name}\" is not approved by admin yet.`); setSaving(false); return }
+      if (!p.is_verified) { setSaveErr(`❌ Teammate ${i + 1}: Player \"${p.full_name}\" is not approved by admin yet.`); setSaving(false); return }
     }
 
     const t1 = slots >= 1 ? mates[0].trim() || null : null
@@ -661,11 +661,11 @@ function RegistrationForm({ tournament, onRegistered }) {
       if (!uid) continue
       const { data: p } = await supabasePlayer
         .from('players')
-        .select('player_name, is_approved')
+        .select('full_name, is_verified')
         .eq('ff_uid', uid)
         .single()
       if (!p) return setErr(`❌ Teammate ${i + 1}: No player found with UID \"${uid}\". Only registered app users can be added.`)
-      if (!p.is_approved) return setErr(`❌ Teammate ${i + 1}: Player \"${p.player_name}\" is not approved by admin yet.`)
+      if (!p.is_verified) return setErr(`❌ Teammate ${i + 1}: Player \"${p.full_name}\" is not approved by admin yet.`)
     }
 
     if (filledMates.includes(hostUid)) return setErr('❌ Your UID cannot also be a teammate UID.')
@@ -757,6 +757,7 @@ function RegistrationForm({ tournament, onRegistered }) {
         player_id: profile.id,
         team_name: slots > 0 ? teamName.trim() : (profile.full_name || hostUid),
         host_uid: hostUid,
+        host_player_id: profile.id,
         teammate_uid_1: t1,
         teammate_uid_2: t2,
         teammate_uid_3: t3,
