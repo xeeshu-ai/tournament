@@ -2,15 +2,20 @@ import React from 'react'
 import { Link } from 'react-router-dom'
 import { supabasePlayer } from '../../lib/supabaseClient'
 import { usePlayer } from '../../lib/PlayerContext'
-import { TOURNAMENT_TYPES } from '../../lib/constants'
+import { TOURNAMENT_TYPES, FF_MODES } from '../../lib/constants'
+
+/** Always derive mode label from t.mode — never trust the stored mode_label column */
+function getModeLabel(t) {
+  if (!t?.mode) return t?.mode_label || ''
+  return FF_MODES.find((m) => m.id === t.mode)?.label || t.mode_label || t.mode
+}
 
 export function Tournaments() {
   const { profile } = usePlayer()
   const [loading, setLoading] = React.useState(true)
   const [tournaments, setTournaments] = React.useState([])
-  const [myRegistrations, setMyRegistrations] = React.useState([]) // array of tournament_id strings
+  const [myRegistrations, setMyRegistrations] = React.useState([])
 
-  // Load all non-archived tournaments
   React.useEffect(() => {
     let ignore = false
     async function load() {
@@ -34,27 +39,21 @@ export function Tournaments() {
     return () => { ignore = true }
   }, [])
 
-  // Load which tournaments this player has registered for (as host OR teammate)
   React.useEffect(() => {
     if (!profile?.ff_uid) { setMyRegistrations([]); return }
     let ignore = false
     async function loadMyRegs() {
       const uid = profile.ff_uid
 
-      // Fetch as host — RLS allows this (host_player_id = auth.uid())
       const { data: asHost } = await supabasePlayer
         .from('tournament_registrations')
         .select('tournament_id')
         .eq('host_uid', uid)
 
-      // Fetch as teammate — RLS policy must allow uid in teammate cols
-      // (after policy fix: allow select where host_uid=uid OR teammate_uid_1=uid etc.)
       const { data: asTeammate } = await supabasePlayer
         .from('tournament_registrations')
         .select('tournament_id')
-        .or(
-          `teammate_uid_1.eq.${uid},teammate_uid_2.eq.${uid},teammate_uid_3.eq.${uid}`
-        )
+        .or(`teammate_uid_1.eq.${uid},teammate_uid_2.eq.${uid},teammate_uid_3.eq.${uid}`)
 
       if (!ignore) {
         const hostIds = (asHost || []).map((r) => r.tournament_id)
@@ -88,6 +87,10 @@ export function Tournaments() {
         <div className="grid gap-4 md:grid-cols-2">
           {tournaments.map((t) => {
             const isRegistered = myRegistrations.includes(t.id)
+            const modeLabel = getModeLabel(t)
+            const formatLabel = t.format_label
+            const modeLine = [modeLabel, formatLabel].filter(Boolean).join(' • ')
+
             return (
               <Link key={t.id} to={`/tournaments/${t.id}`} className="card group">
                 <div className="flex items-center justify-between gap-3">
@@ -95,9 +98,11 @@ export function Tournaments() {
                     <span className="badge">
                       {TOURNAMENT_TYPES.find((x) => x.id === t.type)?.label || 'Tournament'}
                     </span>
-                    <span className="rounded-full bg-slate-900/80 px-2 py-0.5 text-[11px] text-slate-300">
-                      {t.mode_label} • {t.format_label}
-                    </span>
+                    {modeLine && (
+                      <span className="rounded-full bg-slate-900/80 px-2 py-0.5 text-[11px] text-slate-300">
+                        {modeLine}
+                      </span>
+                    )}
                     {t.map && (
                       <span className="rounded-full bg-slate-900/80 px-2 py-0.5 text-[11px] text-slate-300">
                         Map: {t.map}

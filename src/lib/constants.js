@@ -23,6 +23,12 @@ export const TOURNAMENT_TYPES = [
   { id: 'long', label: 'Long Tournament' }
 ]
 
+/** Derive the correct mode label from t.mode — never trust the stored mode_label column */
+export function getModeLabel(t) {
+  if (!t?.mode) return t?.mode_label || ''
+  return FF_MODES.find((m) => m.id === t.mode)?.label || t.mode_label || t.mode
+}
+
 export function calculateBrPoints(kills, position) {
   const k = Number(kills) || 0
   const p = Number(position) || 1
