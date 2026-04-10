@@ -3,10 +3,10 @@ import { useParams } from 'react-router-dom'
 import { supabasePlayer } from '../../lib/supabaseClient'
 import { usePlayer } from '../../lib/PlayerContext'
 
-// ─── Razorpay key ─────────────────────────────────────────────────
+// ─── Razorpay key ───────────────────────────────────────────────────────────────────
 const RZP_KEY = import.meta.env.VITE_RAZORPAY_KEY_ID || 'rzp_test_SaUtkNyiEDfrAm'
 
-// ─── helpers ──────────────────────────────────────────────────────
+// ─── helpers ───────────────────────────────────────────────────────────────────
 
 function teammateCount(teamSize) {
   if (teamSize === null || teamSize === undefined) return 0
@@ -50,7 +50,6 @@ function loadRazorpayScript() {
   })
 }
 
-// ─── Format a date/time string nicely (IST) ────────────────────
 function fmtDate(iso) {
   if (!iso) return null
   try {
@@ -69,9 +68,8 @@ function fmtDate(iso) {
 }
 
 /**
- * Given a list of all registrations in this tournament and a set of UIDs to check,
- * returns the first UID that is already present anywhere (as host or teammate).
- * Returns null if no conflict.
+ * Given a list of registrations and UIDs to check,
+ * returns the first UID already present (as host or teammate).
  */
 function findUidConflict(registrations, uidsToCheck) {
   const uids = uidsToCheck.filter(Boolean).map((u) => String(u).trim())
@@ -95,7 +93,7 @@ function findUidConflict(registrations, uidsToCheck) {
 
 // ─── Already Registered Panel (with teammate editor + room code) ───
 
-function AlreadyRegisteredPanel({ registration: initialReg, tournament, onUpdated }) {
+function AlreadyRegisteredPanel({ registration: initialReg, tournament, allRegs, onUpdated }) {
   const slots = teammateCount(tournament.team_size)
 
   const [reg, setReg] = React.useState(initialReg)
@@ -110,10 +108,8 @@ function AlreadyRegisteredPanel({ registration: initialReg, tournament, onUpdate
   const [saveErr, setSaveErr] = React.useState(null)
   const [saveOk, setSaveOk] = React.useState(false)
 
-  // Room code state
-  const [roomCode, setRoomCode] = React.useState(null) // { room_id, room_password }
+  const [roomCode, setRoomCode] = React.useState(null)
 
-  // Fetch room code if reveal_at has passed
   React.useEffect(() => {
     async function fetchRoomCode() {
       const now = new Date().toISOString()
@@ -130,7 +126,6 @@ function AlreadyRegisteredPanel({ registration: initialReg, tournament, onUpdate
     fetchRoomCode()
   }, [tournament.id])
 
-  // Sync local state whenever parent re-fetches
   React.useEffect(() => {
     setReg(initialReg)
     if (!editing) {
@@ -143,7 +138,6 @@ function AlreadyRegisteredPanel({ registration: initialReg, tournament, onUpdate
     }
   }, [initialReg])
 
-  // ── Use correct DB column: entry_closing_time ──
   const closesAt = tournament.entry_closing_time
   const editable =
     tournament.registration_status === 'open' &&
@@ -158,9 +152,8 @@ function AlreadyRegisteredPanel({ registration: initialReg, tournament, onUpdate
     setSaveErr(null)
     setSaveOk(false)
 
-    const otherRegs = (tournament.tournament_registrations || []).filter(
-      (r) => r.id !== reg.id
-    )
+    // Use allRegs passed from parent (fetched separately, not filtered by RLS)
+    const otherRegs = (allRegs || []).filter((r) => r.id !== reg.id)
     const newMates = mates.map((m) => m.trim()).filter(Boolean)
 
     const conflictUid = findUidConflict(otherRegs, newMates)
@@ -252,7 +245,7 @@ function AlreadyRegisteredPanel({ registration: initialReg, tournament, onUpdate
         )}
       </div>
 
-      {/* Room code — shown once reveal_at has passed */}
+      {/* Room code */}
       {roomCode && (
         <div className="rounded-lg bg-emerald-500/10 px-3 py-3 space-y-2 ring-1 ring-emerald-700">
           <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-emerald-400">🔐 Room Details</p>
@@ -392,9 +385,9 @@ function AlreadyRegisteredPanel({ registration: initialReg, tournament, onUpdate
   )
 }
 
-// ─── Registration + Payment form ──────────────────────────────────
+// ─── Registration + Payment form ──────────────────────────────────────────────────
 
-function RegistrationForm({ tournament, onRegistered }) {
+function RegistrationForm({ tournament, allRegs, onRegistered }) {
   const { user, profile } = usePlayer()
   const slots = teammateCount(tournament.team_size)
   const entryFee = Number(tournament.entry_fee) || 0
@@ -404,15 +397,13 @@ function RegistrationForm({ tournament, onRegistered }) {
   const [mates, setMates] = React.useState(Array(Math.max(0, slots)).fill(''))
   const [err, setErr] = React.useState(null)
   const [paymentId, setPaymentId] = React.useState(null)
-  const [banInfo, setBanInfo] = React.useState(undefined) // undefined=loading, null=no ban
+  const [banInfo, setBanInfo] = React.useState(undefined)
 
-  // ── Use correct DB column: entry_closing_time ──
   const closesAt = tournament.entry_closing_time
   const matchTime = fmtDate(tournament.start_time)
   const closesTime = fmtDate(closesAt)
   const hostUid = profile?.ff_uid || ''
 
-  // Check if player is banned
   React.useEffect(() => {
     if (!profile?.id) { setBanInfo(null); return }
     async function checkBan() {
@@ -432,7 +423,6 @@ function RegistrationForm({ tournament, onRegistered }) {
     setMates((prev) => prev.map((v, idx) => (idx === i ? val : v)))
   }
 
-  // ── Guard: not logged in ──
   if (!user) {
     return (
       <div className="card space-y-2 text-xs text-slate-200">
@@ -477,7 +467,6 @@ function RegistrationForm({ tournament, onRegistered }) {
     )
   }
 
-  // ── Guard: ban check loading ──
   if (banInfo === undefined) {
     return (
       <div className="card flex items-center gap-3 py-6 text-xs text-slate-400">
@@ -487,7 +476,6 @@ function RegistrationForm({ tournament, onRegistered }) {
     )
   }
 
-  // ── Guard: banned ──
   if (banInfo) {
     const bannedUntilText = banInfo.banned_until
       ? `until ${fmtDate(banInfo.banned_until)}`
@@ -510,7 +498,8 @@ function RegistrationForm({ tournament, onRegistered }) {
     if (!teamName.trim()) return setErr('Team name is required.')
     if (!hostUid) return setErr('Could not read your UID from profile. Please refresh.')
 
-    const existingRegs = tournament.tournament_registrations || []
+    // Use allRegs passed from parent for conflict checks
+    const existingRegs = allRegs || []
     const filledMates = mates.map((m) => m.trim()).filter(Boolean)
     const allNewUids = [hostUid, ...filledMates]
 
@@ -640,7 +629,6 @@ function RegistrationForm({ tournament, onRegistered }) {
     <form onSubmit={handleSubmit} className="card space-y-3 text-xs text-slate-200">
       <h2 className="text-sm font-semibold text-slate-50">Register for this tournament</h2>
 
-      {/* Timings */}
       {(closesTime || matchTime) && (
         <div className="rounded-lg bg-slate-900/70 px-3 py-2 space-y-1.5 ring-1 ring-slate-800 text-[11px]">
           {closesTime && <div className="flex justify-between gap-2"><span className="text-slate-400">Entry closes</span><span className="font-semibold text-amber-300">{closesTime}</span></div>}
@@ -648,7 +636,6 @@ function RegistrationForm({ tournament, onRegistered }) {
         </div>
       )}
 
-      {/* Your UID — readonly */}
       <div className="space-y-1">
         <label className="block text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400">Your Free Fire UID</label>
         <div className="flex items-center gap-2 rounded-lg bg-slate-900/80 px-3 py-2 ring-1 ring-slate-700">
@@ -707,63 +694,89 @@ function RegistrationForm({ tournament, onRegistered }) {
   )
 }
 
-// ─── Main page ────────────────────────────────────────────────────
+// ─── Main page ───────────────────────────────────────────────────────────────────
 
 export function TournamentDetails() {
   const { id } = useParams()
   const { profile } = usePlayer()
   const [tournament, setTournament] = React.useState(null)
+  const [allRegs, setAllRegs] = React.useState([])   // all registrations for this tournament
+  const [myReg, setMyReg] = React.useState(null)      // this player's own registration (as host)
+  const [addedAsTeammate, setAddedAsTeammate] = React.useState(null) // reg where player is a teammate
   const [loading, setLoading] = React.useState(true)
   const [error, setError] = React.useState(null)
 
-  async function load(ignore) {
+  async function load(ignoreOrBool) {
+    // ignoreOrBool can be an ignore flag (boolean) or false when called manually
+    const ignore = ignoreOrBool === true
     setLoading(true)
-    const { data, error } = await supabasePlayer
+
+    // 1. Fetch tournament (without embedding registrations — RLS would filter them)
+    const { data: tData, error: tErr } = await supabasePlayer
       .from('tournaments')
-      .select('*, tournament_registrations(*), long_brackets(*, long_br_matches(*))')
+      .select('*, long_brackets(*, long_br_matches(*))')
       .eq('id', id)
       .maybeSingle()
-    if (!ignore) {
-      if (error) {
-        console.error(error)
-        setError('Unable to load tournament.')
-      } else {
-        setTournament(data)
-      }
+
+    if (ignore) return
+
+    if (tErr || !tData) {
+      console.error(tErr)
+      setError('Unable to load tournament.')
       setLoading(false)
+      return
     }
+    setTournament(tData)
+
+    // 2. Fetch ALL registrations for this tournament (needs RLS policy: allow read for all logged-in users)
+    const { data: regsData, error: regsErr } = await supabasePlayer
+      .from('tournament_registrations')
+      .select('id, tournament_id, host_uid, team_name, status, teammate_uid_1, teammate_uid_2, teammate_uid_3, member_2_uid, member_3_uid, member_4_uid')
+      .eq('tournament_id', id)
+      .order('created_at', { ascending: true })
+
+    if (regsErr) {
+      console.error('registrations fetch error:', regsErr)
+    }
+
+    const regs = regsData || []
+    setAllRegs(regs)
+
+    // 3. Determine if current player is registered (as host or teammate)
+    const myUid = profile?.ff_uid || null
+    if (myUid) {
+      const asHost = regs.find((r) => r.host_uid === myUid) || null
+      setMyReg(asHost)
+
+      const asTeammate = !asHost
+        ? regs.find((r) =>
+            r.teammate_uid_1 === myUid ||
+            r.teammate_uid_2 === myUid ||
+            r.teammate_uid_3 === myUid
+          ) || null
+        : null
+      setAddedAsTeammate(asTeammate)
+    } else {
+      setMyReg(null)
+      setAddedAsTeammate(null)
+    }
+
+    setLoading(false)
   }
 
   React.useEffect(() => {
     let ignore = false
     load(ignore)
     return () => { ignore = true }
-  }, [id])
+  }, [id, profile?.ff_uid])
 
   if (loading) return <p className="text-xs text-slate-400">Loading tournament…</p>
   if (error || !tournament) return <p className="text-xs text-red-400">{error || 'Tournament not found.'}</p>
 
-  const isLong = tournament.type === 'long'
   const registrationOpen = tournament.registration_status === 'open'
   const isFull = tournament.filled_slots >= tournament.max_slots
   const matchTime = fmtDate(tournament.start_time)
-  // ── Use correct DB column: entry_closing_time ──
   const closesTime = fmtDate(tournament.entry_closing_time)
-
-  const allRegs = tournament.tournament_registrations || []
-  const myUid = profile?.ff_uid || null
-
-  const myReg = myUid
-    ? allRegs.find((r) => r.host_uid === myUid) || null
-    : null
-
-  const addedAsTeammate = myUid && !myReg
-    ? allRegs.find((r) =>
-        r.teammate_uid_1 === myUid ||
-        r.teammate_uid_2 === myUid ||
-        r.teammate_uid_3 === myUid
-      ) || null
-    : null
 
   function renderRightPanel() {
     if (myReg) {
@@ -771,6 +784,7 @@ export function TournamentDetails() {
         <AlreadyRegisteredPanel
           registration={myReg}
           tournament={tournament}
+          allRegs={allRegs}
           onUpdated={() => load(false)}
         />
       )
@@ -822,7 +836,7 @@ export function TournamentDetails() {
       )
     }
 
-    return <RegistrationForm tournament={tournament} onRegistered={() => load(false)} />
+    return <RegistrationForm tournament={tournament} allRegs={allRegs} onRegistered={() => load(false)} />
   }
 
   return (
@@ -847,7 +861,6 @@ export function TournamentDetails() {
       <div className="grid gap-6 lg:grid-cols-[1fr_360px]">
         {/* Left column */}
         <div className="space-y-4">
-          {/* Prize */}
           {tournament.prize_text && (
             <section className="card space-y-2">
               <h2 className="text-sm font-semibold text-slate-50">🏆 Prize Pool</h2>
@@ -855,7 +868,6 @@ export function TournamentDetails() {
             </section>
           )}
 
-          {/* Points table */}
           {tournament.points_table && (
             <section className="card space-y-2">
               <h2 className="text-sm font-semibold text-slate-50">📊 Points Table</h2>
@@ -863,7 +875,6 @@ export function TournamentDetails() {
             </section>
           )}
 
-          {/* Match rules */}
           <section className="card space-y-2 text-xs text-slate-300">
             <h2 className="text-sm font-semibold text-slate-50">📋 Match Rules</h2>
             <ul className="list-disc space-y-1 pl-4">
@@ -878,7 +889,6 @@ export function TournamentDetails() {
             <a href="/rules" className="mt-2 inline-block text-[11px] text-sky-400 hover:text-sky-300 transition-colors">View full rules →</a>
           </section>
 
-          {/* Winner */}
           {tournament.winner_text && (
             <section className="card space-y-2">
               <h2 className="text-sm font-semibold text-amber-300">🥇 Results</h2>
@@ -886,7 +896,6 @@ export function TournamentDetails() {
             </section>
           )}
 
-          {/* YouTube */}
           {tournament.youtube_live_url && (
             <section className="card space-y-2">
               <h2 className="text-sm font-semibold text-slate-50">📺 Live Stream</h2>
@@ -896,7 +905,7 @@ export function TournamentDetails() {
             </section>
           )}
 
-          {/* Registrations list */}
+          {/* Registered Teams list — uses allRegs fetched directly */}
           {allRegs.length > 0 && (
             <section className="card space-y-3">
               <h2 className="text-sm font-semibold text-slate-50">Registered Teams ({allRegs.length}/{tournament.max_slots})</h2>
