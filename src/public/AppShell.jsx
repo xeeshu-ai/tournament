@@ -1,5 +1,5 @@
 import React from 'react'
-import { Link, useLocation, useParams, useNavigate } from 'react-router-dom'
+import { Link, useLocation, useParams, useNavigate, Outlet } from 'react-router-dom'
 import { supabasePlayer } from '../lib/supabaseClient'
 import { usePlayer } from '../lib/PlayerContext'
 import { getGame } from '../lib/constants'
@@ -40,7 +40,7 @@ function ProfileBadge({ gameId }) {
   )
 }
 
-export function AppShell({ children }) {
+export function AppShell() {
   const location = useLocation()
   const { gameId } = useParams()
   const navigate = useNavigate()
@@ -132,7 +132,7 @@ export function AppShell({ children }) {
       </header>
 
       <main className="mx-auto max-w-6xl px-4 py-6">
-        {children}
+        <Outlet />
       </main>
 
       <footer className="border-t border-slate-800/80 bg-slate-950/80">
