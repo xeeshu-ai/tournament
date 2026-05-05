@@ -4,21 +4,20 @@ import { supabasePlayer } from './supabaseClient'
 const PlayerContext = React.createContext(null)
 
 export function PlayerProvider({ children }) {
-  const [user, setUser] = React.useState(undefined)   // undefined = loading
+  const [user, setUser] = React.useState(undefined)    // undefined = loading
   const [profile, setProfile] = React.useState(undefined) // undefined = loading
 
-  // Fetch profile row for a given user
   async function fetchProfile(u) {
     if (!u) { setProfile(null); return }
     const { data } = await supabasePlayer
       .from('players')
-      .select('id, full_name, ff_uid, phone, status, rejection_reason')
+      // NOTE: ff_uid removed — per-game UIDs now live in game_profiles table
+      .select('id, auth_id, full_name, email, phone, status, rejection_reason, created_at')
       .eq('auth_id', u.id)
       .maybeSingle()
     setProfile(data ?? null)
   }
 
-  // Bootstrap: get current session then listen for changes
   React.useEffect(() => {
     supabasePlayer.auth.getUser().then(({ data }) => {
       const u = data?.user ?? null
@@ -35,8 +34,6 @@ export function PlayerProvider({ children }) {
     return () => sub.subscription.unsubscribe()
   }, [])
 
-  // Called by Profile page after a successful insert/update so badge updates instantly.
-  // Returns the promise so callers can await it reliably.
   function refreshProfile() {
     if (user) return fetchProfile(user)
     return Promise.resolve()
