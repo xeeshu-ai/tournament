@@ -4,9 +4,6 @@ import { supabasePlayer } from '../../lib/supabaseClient'
 import { usePlayer } from '../../lib/PlayerContext'
 import { getModeLabel } from '../../lib/constants'
 
-// ─── Razorpay key ───────────────────────────────────────────────────────────────────────────────────
-const RZP_KEY = import.meta.env.VITE_RAZORPAY_KEY_ID || 'rzp_test_SaUtkNyiEDfrAm'
-
 // ─── Teammate UID Validator ────────────────────────────────────────────────────────────────────────
 function useUidValidation(uid, hostUid) {
   const [state, setState] = React.useState({ status: 'idle', name: null })
@@ -87,17 +84,6 @@ function teamSizeLabel(teamSize) {
   return String(teamSize)
 }
 
-function loadRazorpayScript() {
-  return new Promise((resolve) => {
-    if (window.Razorpay) return resolve(true)
-    const script = document.createElement('script')
-    script.src = 'https://checkout.razorpay.com/v1/checkout.js'
-    script.onload = () => resolve(true)
-    script.onerror = () => resolve(false)
-    document.body.appendChild(script)
-  })
-}
-
 function fmtDate(iso) {
   if (!iso) return null
   try {
@@ -124,9 +110,6 @@ function findUidConflict(registrations, uidsToCheck) {
       reg.teammate_uid_1,
       reg.teammate_uid_2,
       reg.teammate_uid_3,
-      reg.member_2_uid,
-      reg.member_3_uid,
-      reg.member_4_uid,
     ].filter(Boolean).map(String)
     for (const uid of uids) {
       if (takenUids.includes(uid)) return uid
@@ -354,12 +337,9 @@ function RoomCodeCard({ tournamentId }) {
         .eq('tournament_id', tournamentId)
         .maybeSingle()
       setRoomCode(data || null)
-      // Auto-hide if admin un-reveals
       if (!data?.is_revealed) setShown(false)
     }
     fetchRoom()
-
-    // Poll every 15s so the card auto-updates when admin reveals the code
     const interval = setInterval(fetchRoom, 15_000)
     return () => clearInterval(interval)
   }, [tournamentId])
@@ -433,7 +413,7 @@ function RoomCodeCard({ tournamentId }) {
   )
 }
 
-// ─── Already Registered Panel (with teammate editor + room code for host) ──────────────────────────────
+// ─── Already Registered Panel ──────────────────────────────────────────────────────
 
 function AlreadyRegisteredPanel({ tournament, reg: initialReg, profile, onUpdated }) {
   const slots = teammateCount(tournament.team_size)
@@ -480,7 +460,7 @@ function AlreadyRegisteredPanel({ tournament, reg: initialReg, profile, onUpdate
 
     const { data: existingRegs } = await supabasePlayer
       .from('tournament_registrations')
-      .select('host_uid,teammate_uid_1,teammate_uid_2,teammate_uid_3,member_2_uid,member_3_uid,member_4_uid')
+      .select('host_uid,teammate_uid_1,teammate_uid_2,teammate_uid_3')
       .eq('tournament_id', tournament.id)
       .neq('id', reg.id)
 
@@ -630,12 +610,10 @@ function AlreadyRegisteredPanel({ tournament, reg: initialReg, profile, onUpdate
         )}
       </div>
 
-      {/* Room code: shown ONLY to the host, only when confirmed */}
       {reg.status === 'confirmed' && isHost && (
         <RoomCodeCard tournamentId={tournament.id} />
       )}
 
-      {/* Non-host confirmed teammates: generic message */}
       {reg.status === 'confirmed' && !isHost && (
         <div className="card space-y-2">
           <p className="text-xs font-semibold text-slate-300">🎮 Room Details</p>
@@ -661,7 +639,6 @@ function RegistrationForm({ tournament, onRegistered }) {
   const hostUid = profile?.ff_uid || ''
   const entryFee = Number(tournament.entry_fee) || 0
   const hasFee = entryFee > 0
-  const paymentMode = tournament.payment_mode || 'upi'
 
   async function handleSubmit(e) {
     e.preventDefault()
@@ -689,21 +666,18 @@ function RegistrationForm({ tournament, onRegistered }) {
 
     const { data: existingRegs } = await supabasePlayer
       .from('tournament_registrations')
-      .select('host_uid,teammate_uid_1,teammate_uid_2,teammate_uid_3,member_2_uid,member_3_uid,member_4_uid')
+      .select('host_uid,teammate_uid_1,teammate_uid_2,teammate_uid_3')
       .eq('tournament_id', tournament.id)
 
     const teammateConflict = findUidConflict(existingRegs || [], filledMates)
     if (teammateConflict) {
       return setErr(`❌ UID "${teammateConflict}" is already registered in this tournament. Use a different UID.`)
     }
-    if (filledMates.length !== new Set(filledMates).size) {
-      return setErr('❌ Duplicate UIDs in your submission. Each player must have a unique UID.')
-    }
 
     setSubmitting(true)
     let screenshotUrl = null
 
-    if (hasFee && paymentMode === 'upi' && payProof) {
+    if (hasFee && payProof) {
       setUploading(true)
       const ext = payProof.name.split('.').pop()
       const filePath = `payments/${profile.id}_${Date.now()}.${ext}`
@@ -714,52 +688,6 @@ function RegistrationForm({ tournament, onRegistered }) {
       if (upErr) { setErr('❌ Upload failed: ' + upErr.message); setSubmitting(false); return }
       const { data: urlData } = supabasePlayer.storage.from('payment-proofs').getPublicUrl(filePath)
       screenshotUrl = urlData?.publicUrl || null
-    }
-
-    if (hasFee && paymentMode === 'razorpay') {
-      const loaded = await loadRazorpayScript()
-      if (!loaded) { setErr('❌ Razorpay failed to load. Try again.'); setSubmitting(false); return }
-
-      const orderRes = await supabasePlayer.functions.invoke('create-razorpay-order', {
-        body: {
-          amount: entryFee * 100,
-          currency: 'INR',
-          receipt: `reg_${profile.id}_${tournament.id}`,
-          player_name: profile.full_name || '',
-          player_email: profile.email || '',
-        },
-      })
-      if (orderRes.error || !orderRes.data?.id) {
-        setErr('❌ Payment initiation failed: ' + (orderRes.error?.message || 'Unknown error'))
-        setSubmitting(false); return
-      }
-      const orderData = orderRes.data
-
-      await new Promise((resolve, reject) => {
-        const rzp = new window.Razorpay({
-          key: RZP_KEY,
-          amount: entryFee * 100,
-          currency: 'INR',
-          name: 'Tournament Registration',
-          description: tournament.title,
-          order_id: orderData.id,
-          prefill: {
-            name: orderData.player_name || '',
-            email: orderData.player_email || '',
-          },
-          handler: (response) => {
-            screenshotUrl = `rzp:${response.razorpay_payment_id}`
-            resolve()
-          },
-          modal: { ondismiss: () => reject(new Error('dismissed')) },
-        })
-        rzp.open()
-      }).catch(() => {
-        setErr('❌ Payment cancelled.')
-        setSubmitting(false)
-        return
-      })
-      if (!screenshotUrl) { setSubmitting(false); return }
     }
 
     const t1 = slots >= 1 ? mates[0].trim() || null : null
@@ -842,17 +770,20 @@ function RegistrationForm({ tournament, onRegistered }) {
         </div>
       )}
 
-      {hasFee && paymentMode === 'upi' && (
-        <div className="space-y-2">
-          <label className="label">Entry Fee: ₹{entryFee}</label>
-          {tournament.upi_id && (
-            <div className="rounded-lg bg-slate-900/80 px-3 py-2 text-xs">
-              <p className="text-slate-400">UPI ID: <span className="font-mono text-slate-100">{tournament.upi_id}</span></p>
-              {tournament.upi_qr_url && (
-                <img src={tournament.upi_qr_url} alt="UPI QR" className="mt-2 w-32 h-32 rounded" />
-              )}
-            </div>
-          )}
+      {hasFee && (
+        <div className="space-y-3">
+          <div className="rounded-lg bg-slate-900/80 px-3 py-3 text-xs space-y-1.5">
+            <p className="font-semibold text-slate-200">Entry Fee: ₹{entryFee}</p>
+            {tournament.upi_id && (
+              <p className="text-slate-400">
+                UPI ID: <span className="font-mono text-slate-100 select-all">{tournament.upi_id}</span>
+              </p>
+            )}
+            {tournament.upi_qr_url && (
+              <img src={tournament.upi_qr_url} alt="UPI QR" className="mt-2 w-32 h-32 rounded" />
+            )}
+            <p className="text-amber-400 text-[11px]">⚠️ Pay the entry fee and upload the screenshot below.</p>
+          </div>
           <div className="space-y-1">
             <label className="label">Upload Payment Screenshot</label>
             <input
@@ -862,13 +793,12 @@ function RegistrationForm({ tournament, onRegistered }) {
               onChange={e => setPayProof(e.target.files?.[0] || null)}
             />
           </div>
-        </div>
-      )}
 
-      {hasFee && paymentMode === 'razorpay' && (
-        <div className="rounded-lg bg-slate-900/60 px-3 py-2 text-xs space-y-1">
-          <p className="text-slate-300 font-semibold">Entry Fee: ₹{entryFee}</p>
-          <p className="text-slate-400">You will be redirected to Razorpay to complete the payment.</p>
+          {/* ── Payment gateway placeholder — will be replaced when new provider is integrated ── */}
+          <div className="rounded-lg border border-dashed border-slate-700 bg-slate-900/40 px-3 py-3 text-center space-y-1">
+            <p className="text-[11px] text-slate-500 font-semibold uppercase tracking-wide">Online Payment</p>
+            <p className="text-[11px] text-slate-600">Coming soon — a payment gateway will be available here.</p>
+          </div>
         </div>
       )}
 
