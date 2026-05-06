@@ -437,7 +437,6 @@ function AlreadyRegisteredPanel({ tournament, reg: initialReg, gameProfile, onUp
     ])
   }, [initialReg])
 
-  // Use gameProfile.game_uid (the correct source) to determine if current user is the host
   const myUid = gameProfile?.game_uid ? String(gameProfile.game_uid).trim() : ''
   const isHost = myUid && myUid === String(reg.host_uid).trim()
 
@@ -617,7 +616,6 @@ function AlreadyRegisteredPanel({ tournament, reg: initialReg, gameProfile, onUp
 // ─── Registration Form ──────────────────────────────────────────────────────────────────────────────────
 function RegistrationForm({ tournament, onRegistered }) {
   const { profile } = usePlayer()
-  // FIX: UID lives in game_profiles.game_uid, exposed via GameContext as gameProfile.game_uid
   const { gameProfile } = useGame()
   const slots = teammateCount(tournament.team_size)
   const [teamName, setTeamName] = React.useState('')
@@ -626,7 +624,6 @@ function RegistrationForm({ tournament, onRegistered }) {
   const [err, setErr] = React.useState('')
   const [ok, setOk] = React.useState(false)
 
-  // Correctly read UID from gameProfile (game_profiles table), not from profile (players table)
   const hostUid = gameProfile?.game_uid ? String(gameProfile.game_uid).trim() : ''
   const entryFee = Number(tournament.entry_fee) || 0
   const hasFee = entryFee > 0
@@ -671,14 +668,14 @@ function RegistrationForm({ tournament, onRegistered }) {
     const t2 = slots >= 2 ? mates[1].trim() || null : null
     const t3 = slots >= 3 ? mates[2].trim() || null : null
 
+    // FIX: use host_player_id (the actual column name), not player_id
     const { error: regErr } = await supabasePlayer
       .from('tournament_registrations')
       .insert({
         tournament_id: tournament.id,
-        player_id: profile.id,
+        host_player_id: profile.id,
         team_name: slots > 0 ? teamName.trim() : (gameProfile?.in_game_name || hostUid),
         host_uid: hostUid,
-        host_player_id: profile.id,
         teammate_uid_1: t1,
         teammate_uid_2: t2,
         teammate_uid_3: t3,
@@ -799,11 +796,12 @@ export default function TournamentDetails() {
     setTournament(t || null)
 
     if (t && profile) {
+      // FIX: query by host_player_id (actual column), not player_id
       const { data: reg } = await supabasePlayer
         .from('tournament_registrations')
         .select('*')
         .eq('tournament_id', t.id)
-        .eq('player_id', profile.id)
+        .eq('host_player_id', profile.id)
         .maybeSingle()
       setMyReg(reg || null)
     } else {
