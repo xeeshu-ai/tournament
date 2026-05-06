@@ -8,9 +8,10 @@ const SELECT_COLS = 'id, auth_id, full_name, email, phone, status, rejection_rea
 export function PlayerProvider({ children }) {
   const [user, setUser] = React.useState(undefined)   // undefined = loading, null = logged out
   const [profile, setProfile] = React.useState(undefined)
+  const [loading, setLoading] = React.useState(true)  // true until first auth check completes
 
   async function fetchOrCreateProfile(u) {
-    if (!u) { setProfile(null); return }
+    if (!u) { setProfile(null); setLoading(false); return }
 
     // 1. Try fetch existing row
     const { data: existing } = await supabasePlayer
@@ -19,7 +20,7 @@ export function PlayerProvider({ children }) {
       .eq('auth_id', u.id)
       .maybeSingle()
 
-    if (existing) { setProfile(existing); return }
+    if (existing) { setProfile(existing); setLoading(false); return }
 
     // 2. Insert new row — status must be 'active' to satisfy the DB check constraint
     const { data: inserted, error } = await supabasePlayer
@@ -36,9 +37,11 @@ export function PlayerProvider({ children }) {
         .eq('auth_id', u.id)
         .maybeSingle()
       setProfile(fallback ?? null)
+      setLoading(false)
       return
     }
     setProfile(inserted ?? null)
+    setLoading(false)
   }
 
   async function fetchGameProfile(playerId, gameId) {
@@ -73,7 +76,7 @@ export function PlayerProvider({ children }) {
   }
 
   return (
-    <PlayerContext.Provider value={{ user, profile, refreshProfile, fetchGameProfile }}>
+    <PlayerContext.Provider value={{ user, profile, loading, refreshProfile, fetchGameProfile }}>
       {children}
     </PlayerContext.Provider>
   )

@@ -626,7 +626,8 @@ function AlreadyRegisteredPanel({ tournament, reg: initialReg, profile, onUpdate
 
 // ─── Registration Form ──────────────────────────────────────────────────────────────────────────────────
 function RegistrationForm({ tournament, onRegistered }) {
-  const { player: profile } = usePlayer()
+  // FIX: use correct context key 'profile' (not 'player')
+  const { profile } = usePlayer()
   const slots = teammateCount(tournament.team_size)
   const [teamName, setTeamName] = React.useState('')
   const [mates, setMates] = React.useState(['', '', ''])
@@ -815,7 +816,8 @@ function RegistrationForm({ tournament, onRegistered }) {
 
 export default function TournamentDetails() {
   const { id } = useParams()
-  const { player: profile, loading: authLoading } = usePlayer()
+  // FIX: destructure correct context keys — 'profile' and 'loading' (not 'player' and 'authLoading')
+  const { profile, loading: authLoading } = usePlayer()
   const [tournament, setTournament] = React.useState(null)
   const [myReg, setMyReg] = React.useState(undefined)
   const [allRegs, setAllRegs] = React.useState([])
