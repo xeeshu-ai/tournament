@@ -3,25 +3,27 @@ import { Link, useLocation, useParams, useNavigate, Outlet } from 'react-router-
 import { supabasePlayer } from '../lib/supabaseClient'
 import { usePlayer } from '../lib/PlayerContext'
 import { getGame } from '../lib/constants'
+import { AccountSetupModal } from './AccountSetupModal'
 
 function ProfileBadge({ gameId }) {
-  const { profile } = usePlayer()
+  const { profile, needsSetup } = usePlayer()
   const game = gameId ? getGame(gameId) : null
 
   if (profile === undefined) return null
 
-  if (profile === null) {
+  // No profile row yet (shouldn't happen, but guard it)
+  if (profile === null) return null
+
+  // Show blinking red if Tournvia account not set up OR no name entered
+  if (needsSetup || !profile.full_name) {
     return (
-      <Link
-        to={gameId ? `/${gameId}/profile` : '/select-game'}
-        className="inline-flex items-center gap-2 rounded-full border border-red-500/50 bg-red-500/10 px-3 py-1 text-xs font-medium text-red-300 hover:border-red-400/70 transition-colors"
-      >
+      <span className="inline-flex items-center gap-2 rounded-full border border-red-500/50 bg-red-500/10 px-3 py-1 text-xs font-medium text-red-300">
         <span className="relative flex h-2 w-2">
           <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-red-400 opacity-75" />
           <span className="relative inline-flex h-2 w-2 rounded-full bg-red-500" />
         </span>
         Complete profile
-      </Link>
+      </span>
     )
   }
 
@@ -65,7 +67,7 @@ export function AppShell() {
   const location = useLocation()
   const { gameId } = useParams()
   const navigate = useNavigate()
-  const { user } = usePlayer()
+  const { user, needsSetup } = usePlayer()
   const [sidebarOpen, setSidebarOpen] = React.useState(false)
 
   const game = gameId ? getGame(gameId) : null
@@ -73,11 +75,11 @@ export function AppShell() {
   // Close sidebar on route change
   React.useEffect(() => { setSidebarOpen(false) }, [location.pathname])
 
-  // Lock body scroll when sidebar is open
+  // Lock body scroll when sidebar or modal is open
   React.useEffect(() => {
-    document.body.style.overflow = sidebarOpen ? 'hidden' : ''
+    document.body.style.overflow = (sidebarOpen || needsSetup) ? 'hidden' : ''
     return () => { document.body.style.overflow = '' }
-  }, [sidebarOpen])
+  }, [sidebarOpen, needsSetup])
 
   const handleLogin = async () => {
     await supabasePlayer.auth.signInWithOAuth({
@@ -108,7 +110,10 @@ export function AppShell() {
   return (
     <div className="min-h-screen bg-gradient-to-b from-slate-950 via-slate-950 to-slate-900">
 
-      {/* ── Backdrop overlay ── */}
+      {/* ── Account setup modal — renders on top of everything ── */}
+      {needsSetup && <AccountSetupModal />}
+
+      {/* ── Sidebar backdrop ── */}
       {sidebarOpen && (
         <div
           className="fixed inset-0 z-40 bg-slate-950/80 backdrop-blur-sm md:hidden"

@@ -4,7 +4,7 @@ import { supabasePlayer } from './supabaseClient'
 const PlayerContext = React.createContext(null)
 
 export function PlayerProvider({ children }) {
-  const [user, setUser] = React.useState(undefined)    // undefined = loading
+  const [user, setUser] = React.useState(undefined)       // undefined = loading
   const [profile, setProfile] = React.useState(undefined) // undefined = loading
 
   async function fetchOrCreateProfile(u) {
@@ -13,7 +13,7 @@ export function PlayerProvider({ children }) {
     // Try to fetch existing players row
     const { data: existing } = await supabasePlayer
       .from('players')
-      .select('id, auth_id, full_name, email, phone, status, rejection_reason, created_at')
+      .select('id, auth_id, full_name, email, phone, status, rejection_reason, created_at, profile_setup')
       .eq('auth_id', u.id)
       .maybeSingle()
 
@@ -22,23 +22,25 @@ export function PlayerProvider({ children }) {
       return
     }
 
-    // First login — auto-create the players row
+    // First ever login — create a bare-minimum row
+    // full_name left empty so the setup modal forces the player to enter it themselves
     const { data: created, error } = await supabasePlayer
       .from('players')
       .insert({
         auth_id: u.id,
-        full_name: u.user_metadata?.full_name || u.email?.split('@')[0] || 'Player',
         email: u.email,
+        full_name: '',        // intentionally blank — setup modal fills this
         status: 'active',
+        profile_setup: false, // triggers the setup modal
       })
-      .select('id, auth_id, full_name, email, phone, status, rejection_reason, created_at')
+      .select('id, auth_id, full_name, email, phone, status, rejection_reason, created_at, profile_setup')
       .single()
 
     if (error) {
-      // Edge case: race condition — row may have just been created, try fetching again
+      // Race condition guard — row may have just been created by a parallel request
       const { data: retry } = await supabasePlayer
         .from('players')
-        .select('id, auth_id, full_name, email, phone, status, rejection_reason, created_at')
+        .select('id, auth_id, full_name, email, phone, status, rejection_reason, created_at, profile_setup')
         .eq('auth_id', u.id)
         .maybeSingle()
       setProfile(retry ?? null)
@@ -68,8 +70,11 @@ export function PlayerProvider({ children }) {
     return Promise.resolve()
   }
 
+  // needsSetup = logged in, row exists, but setup modal not yet completed
+  const needsSetup = !!user && !!profile && profile.profile_setup === false
+
   return (
-    <PlayerContext.Provider value={{ user, profile, refreshProfile }}>
+    <PlayerContext.Provider value={{ user, profile, refreshProfile, needsSetup }}>
       {children}
     </PlayerContext.Provider>
   )
