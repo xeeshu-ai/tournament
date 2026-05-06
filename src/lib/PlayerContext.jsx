@@ -3,8 +3,9 @@ import { supabasePlayer } from './supabaseClient'
 
 const PlayerContext = React.createContext(null)
 
-// Module-level lock — prevents concurrent fetchOrCreate calls for the same auth_id
 let _fetchLock = null
+
+const SELECT_COLS = 'id, auth_id, full_name, email, phone, ff_uid, status, rejection_reason, created_at, profile_setup'
 
 export function PlayerProvider({ children }) {
   const [user, setUser] = React.useState(undefined)
@@ -14,7 +15,6 @@ export function PlayerProvider({ children }) {
   async function fetchOrCreateProfile(u) {
     if (!u) { setProfile(null); return }
 
-    // If a fetch is already in-flight for this user, wait for it instead of firing a second one
     if (_fetchLock) {
       const result = await _fetchLock
       if (result) {
@@ -25,8 +25,7 @@ export function PlayerProvider({ children }) {
     }
 
     _fetchLock = (async () => {
-      const SELECT_COLS = 'id, auth_id, full_name, email, phone, ff_uid, status, is_verified, rejection_reason, created_at, profile_setup'
-
+      // Always try SELECT first
       const { data: existing } = await supabasePlayer
         .from('players')
         .select(SELECT_COLS)
@@ -35,8 +34,9 @@ export function PlayerProvider({ children }) {
 
       if (existing) return existing
 
-      // Use upsert with onConflict so concurrent calls never produce two rows.
-      // The UNIQUE constraint on auth_id means the second call just returns the existing row.
+      // Row doesn't exist yet — insert it.
+      // ignoreDuplicates: true means if the row already exists (race condition),
+      // it does nothing and we fall through to the fallback fetch below.
       const { data: upserted, error } = await supabasePlayer
         .from('players')
         .upsert(
@@ -47,13 +47,13 @@ export function PlayerProvider({ children }) {
             status: 'pending',
             profile_setup: false,
           },
-          { onConflict: 'auth_id', ignoreDuplicates: false }
+          { onConflict: 'auth_id', ignoreDuplicates: true }
         )
         .select(SELECT_COLS)
         .maybeSingle()
 
-      if (error) {
-        // Fallback: row likely exists from a concurrent call — just fetch it
+      if (error || !upserted) {
+        // Row exists from a concurrent call — just fetch it
         const { data: fallback } = await supabasePlayer
           .from('players')
           .select(SELECT_COLS)
@@ -62,15 +62,14 @@ export function PlayerProvider({ children }) {
         return fallback ?? null
       }
 
-      return upserted ?? null
+      return upserted
     })()
 
     try {
       const result = await _fetchLock
       if (result) {
         setProfile(result)
-        const isNew = !result.profile_setup
-        if (isNew) setSetupModalOpen(true)
+        if (!result.profile_setup) setSetupModalOpen(true)
       } else {
         setProfile(null)
       }
@@ -80,8 +79,6 @@ export function PlayerProvider({ children }) {
   }
 
   React.useEffect(() => {
-    // getUser() + onAuthStateChange both fire on mount — only process the first one.
-    // We use the lock above to coalesce them safely.
     supabasePlayer.auth.getUser().then(({ data }) => {
       const u = data?.user ?? null
       setUser(u)
