@@ -17,6 +17,8 @@ import TournamentDetails from './public/pages/TournamentDetails'
 import { Profile } from './public/pages/Profile'
 import { Rules } from './public/pages/Rules'
 import { Contact } from './public/pages/Contact'
+import { GameRules } from './public/pages/GameRules'
+import { GameContact } from './public/pages/GameContact'
 
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
@@ -34,7 +36,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(
             </AuthGuard>
           } />
 
-          {/* ── Protected: global shell (no game context) ── */}
+          {/* ── Protected: global shell (platform-wide pages) ── */}
           <Route element={
             <AuthGuard>
               <AppShell />
@@ -58,6 +60,9 @@ ReactDOM.createRoot(document.getElementById('root')).render(
             <Route path="tournaments/:id" element={<TournamentDetails />} />
             <Route path="profile"         element={<Profile />} />
             <Route path="setup"           element={<GameSetup />} />
+            {/* Game-specific pages — isolated from global /rules and /contact */}
+            <Route path="rules"           element={<GameRules />} />
+            <Route path="contact"         element={<GameContact />} />
           </Route>
 
           {/* ── Root: redirect to select-game (AuthGuard handles unauth) ── */}

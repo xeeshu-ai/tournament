@@ -25,13 +25,16 @@ export function ProfileSetup() {
     const ph = phone.trim()
 
     if (!name) { setError('Full name is required.'); return }
-    if (!ph) { setError('Phone number is required.'); return }
-    if (!/^[6-9]\d{9}$/.test(ph)) { setError('Enter a valid 10-digit Indian mobile number.'); return }
+    // Phone is optional — only validate format if provided
+    if (ph && !/^[6-9]\d{9}$/.test(ph)) {
+      setError('Enter a valid 10-digit Indian mobile number, or leave it blank.')
+      return
+    }
 
     setSaving(true)
     const { error: err } = await supabasePlayer
       .from('players')
-      .update({ full_name: name, phone: ph, profile_setup: true })
+      .update({ full_name: name, phone: ph || null, profile_setup: true })
       .eq('id', profile.id)
 
     if (err) { setError(err.message); setSaving(false); return }
@@ -90,7 +93,7 @@ export function ProfileSetup() {
 
           <div>
             <label className="mb-1.5 block text-xs font-medium text-slate-300" htmlFor="phone">
-              Phone Number <span className="text-red-400">*</span>
+              Phone Number <span className="text-slate-500">(optional)</span>
             </label>
             <div className="flex">
               <span className="flex items-center rounded-l-xl border border-r-0 border-slate-700 bg-slate-800/50 px-3 text-sm text-slate-400">+91</span>
@@ -103,6 +106,7 @@ export function ProfileSetup() {
                 className="w-full rounded-r-xl border border-slate-700 bg-slate-800 px-4 py-2.5 text-sm text-white placeholder-slate-500 outline-none transition focus:border-sky-500 focus:ring-1 focus:ring-sky-500"
               />
             </div>
+            <p className="mt-1 text-[11px] text-slate-500">Used for prize payouts. You can add it later from your profile.</p>
           </div>
         </div>
 

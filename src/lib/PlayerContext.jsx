@@ -21,10 +21,10 @@ export function PlayerProvider({ children }) {
 
     if (existing) { setProfile(existing); return }
 
-    // 2. Insert new row
+    // 2. Insert new row — status must be 'active' to satisfy the DB check constraint
     const { data: inserted, error } = await supabasePlayer
       .from('players')
-      .insert({ auth_id: u.id, email: u.email, full_name: '', status: 'pending', profile_setup: false })
+      .insert({ auth_id: u.id, email: u.email, full_name: '', status: 'active', profile_setup: false })
       .select(SELECT_COLS)
       .maybeSingle()
 

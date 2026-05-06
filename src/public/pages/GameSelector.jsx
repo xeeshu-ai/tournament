@@ -38,7 +38,7 @@ function GameLogo({ gameId, size = 44 }) {
 
 export function GameSelector() {
   const navigate = useNavigate()
-  const { user, profile, openSetupModal } = usePlayer()
+  const { user, profile } = usePlayer()
 
   const activeGames = GAMES.filter((g) => g.status === 'active')
   const soonGames = GAMES.filter((g) => g.status === 'coming_soon')
@@ -57,7 +57,7 @@ export function GameSelector() {
     if (!user) { handleLogin(); return }
 
     // Gate: Tournvia profile must be set up first
-    if (!profile?.profile_setup) { openSetupModal(); return }
+    if (!profile?.profile_setup) { navigate('/profile-setup'); return }
 
     navigate(`/${game.id}/tournaments`)
   }
@@ -111,7 +111,7 @@ export function GameSelector() {
         {/* Profile incomplete notice */}
         {user && profile && !profile.profile_setup && (
           <button
-            onClick={openSetupModal}
+            onClick={() => navigate('/profile-setup')}
             className="inline-flex items-center gap-2 rounded-xl border border-red-500/40 bg-red-500/10 px-4 py-2 text-xs font-medium text-red-300 hover:border-red-400/60 hover:bg-red-500/15 transition-colors"
           >
             <span className="relative flex h-2 w-2">
