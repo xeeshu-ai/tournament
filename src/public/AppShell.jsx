@@ -5,17 +5,21 @@ import { usePlayer } from '../lib/PlayerContext'
 import { getGame } from '../lib/constants'
 import { AccountSetupModal } from './AccountSetupModal'
 
+/**
+ * ProfileBadge — 3 states:
+ *   🔴 RED    — profile_setup = false  → player hasn't set a name yet
+ *   🟡 YELLOW — profile_setup = true, is_verified = false → game profile pending admin verification
+ *   🟢 GREEN  — profile_setup = true, is_verified = true  → fully verified, shows player name
+ */
 function ProfileBadge({ gameId }) {
-  const { profile, needsSetup } = usePlayer()
+  const { user, profile } = usePlayer()
   const game = gameId ? getGame(gameId) : null
 
-  if (profile === undefined) return null
+  // Still loading or logged out
+  if (!user || profile === undefined || profile === null) return null
 
-  // No profile row yet (shouldn't happen, but guard it)
-  if (profile === null) return null
-
-  // Show blinking red if Tournvia account not set up OR no name entered
-  if (needsSetup || !profile.full_name) {
+  // 🔴 RED — account setup incomplete
+  if (!profile.profile_setup) {
     return (
       <span className="inline-flex items-center gap-2 rounded-full border border-red-500/50 bg-red-500/10 px-3 py-1 text-xs font-medium text-red-300">
         <span className="relative flex h-2 w-2">
@@ -27,6 +31,23 @@ function ProfileBadge({ gameId }) {
     )
   }
 
+  // 🟡 YELLOW — account set up but game profile not yet verified
+  if (!profile.is_verified) {
+    return (
+      <Link
+        to={gameId ? `/${gameId}/profile` : '/select-game'}
+        className="inline-flex items-center gap-2 rounded-full border border-yellow-500/50 bg-yellow-500/10 px-3 py-1 text-xs font-medium text-yellow-300 hover:border-yellow-400/70 transition-colors"
+      >
+        <span className="relative flex h-2 w-2">
+          <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-yellow-400 opacity-75" />
+          <span className="relative inline-flex h-2 w-2 rounded-full bg-yellow-500" />
+        </span>
+        Verification pending
+      </Link>
+    )
+  }
+
+  // 🟢 GREEN — fully verified, show name
   return (
     <Link
       to={gameId ? `/${gameId}/profile` : '/select-game'}
@@ -38,26 +59,13 @@ function ProfileBadge({ gameId }) {
   )
 }
 
-// Hamburger / close icon
 function MenuIcon({ open }) {
   return (
-    <svg
-      width="22" height="22" viewBox="0 0 22 22" fill="none"
-      stroke="currentColor" strokeWidth="2" strokeLinecap="round"
-      aria-hidden="true"
-      style={{ transition: 'transform 0.25s' }}
-    >
+    <svg width="22" height="22" viewBox="0 0 22 22" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true" style={{ transition: 'transform 0.25s' }}>
       {open ? (
-        <>
-          <line x1="4" y1="4" x2="18" y2="18" />
-          <line x1="18" y1="4" x2="4" y2="18" />
-        </>
+        <><line x1="4" y1="4" x2="18" y2="18" /><line x1="18" y1="4" x2="4" y2="18" /></>
       ) : (
-        <>
-          <line x1="3" y1="6" x2="19" y2="6" />
-          <line x1="3" y1="11" x2="19" y2="11" />
-          <line x1="3" y1="16" x2="19" y2="16" />
-        </>
+        <><line x1="3" y1="6" x2="19" y2="6" /><line x1="3" y1="11" x2="19" y2="11" /><line x1="3" y1="16" x2="19" y2="16" /></>
       )}
     </svg>
   )
@@ -67,15 +75,16 @@ export function AppShell() {
   const location = useLocation()
   const { gameId } = useParams()
   const navigate = useNavigate()
-  const { user, needsSetup } = usePlayer()
+  const { user, profile } = usePlayer()
   const [sidebarOpen, setSidebarOpen] = React.useState(false)
 
   const game = gameId ? getGame(gameId) : null
 
-  // Close sidebar on route change
+  // needsSetup = logged in + row exists + setup not done
+  const needsSetup = !!user && !!profile && profile.profile_setup === false
+
   React.useEffect(() => { setSidebarOpen(false) }, [location.pathname])
 
-  // Lock body scroll when sidebar or modal is open
   React.useEffect(() => {
     document.body.style.overflow = (sidebarOpen || needsSetup) ? 'hidden' : ''
     return () => { document.body.style.overflow = '' }
@@ -96,21 +105,21 @@ export function AppShell() {
   const navItems = game
     ? [
         { to: `/${game.id}/tournaments`, label: 'Tournaments', icon: <TrophyIcon /> },
-        { to: `/${game.id}/profile`, label: 'Profile', icon: <UserIcon /> },
-        { to: '/rules', label: 'Rules', icon: <ShieldIcon /> },
-        { to: '/contact', label: 'Contact', icon: <MailIcon /> },
+        { to: `/${game.id}/profile`,     label: 'Profile',     icon: <UserIcon /> },
+        { to: '/rules',                  label: 'Rules',       icon: <ShieldIcon /> },
+        { to: '/contact',                label: 'Contact',     icon: <MailIcon /> },
       ]
     : [
-        { to: '/', label: 'Home', icon: <HomeIcon /> },
-        { to: '/select-game', label: 'Games', icon: <GamepadIcon /> },
-        { to: '/rules', label: 'Rules', icon: <ShieldIcon /> },
-        { to: '/contact', label: 'Contact', icon: <MailIcon /> },
+        { to: '/',            label: 'Home',   icon: <HomeIcon /> },
+        { to: '/select-game', label: 'Games',  icon: <GamepadIcon /> },
+        { to: '/rules',       label: 'Rules',  icon: <ShieldIcon /> },
+        { to: '/contact',     label: 'Contact', icon: <MailIcon /> },
       ]
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-slate-950 via-slate-950 to-slate-900">
 
-      {/* ── Account setup modal — renders on top of everything ── */}
+      {/* ── Account setup modal — z-[9999] blocks everything ── */}
       {needsSetup && <AccountSetupModal />}
 
       {/* ── Sidebar backdrop ── */}
@@ -131,7 +140,6 @@ export function AppShell() {
         }}
         aria-label="Mobile navigation"
       >
-        {/* Sidebar header */}
         <div className="flex items-center justify-between border-b border-slate-800 px-5 py-4">
           <Link to={game ? `/${game.id}/tournaments` : '/'} className="flex items-center gap-2">
             <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-sky-500 text-slate-950 shadow-lg shadow-sky-500/40">
@@ -153,7 +161,6 @@ export function AppShell() {
           </button>
         </div>
 
-        {/* Nav links */}
         <nav className="flex-1 overflow-y-auto px-3 py-4 space-y-1">
           {navItems.map((item) => {
             const isActive = location.pathname === item.to
@@ -169,41 +176,28 @@ export function AppShell() {
               >
                 <span className={isActive ? 'text-sky-400' : 'text-slate-500'}>{item.icon}</span>
                 {item.label}
-                {isActive && (
-                  <span className="ml-auto h-1.5 w-1.5 rounded-full bg-sky-400" />
-                )}
+                {isActive && <span className="ml-auto h-1.5 w-1.5 rounded-full bg-sky-400" />}
               </Link>
             )
           })}
-
-          {/* Game switcher in sidebar */}
           {game && (
             <button
               onClick={() => { navigate('/select-game'); setSidebarOpen(false) }}
               className="mt-2 flex w-full items-center gap-3 rounded-xl border border-slate-700 bg-slate-800/60 px-3 py-3 text-sm font-medium text-slate-300 hover:border-slate-500 hover:text-slate-100 transition-colors"
             >
-              <GamepadIcon />
-              Switch game
+              <GamepadIcon /> Switch game
             </button>
           )}
         </nav>
 
-        {/* Sidebar footer — auth */}
         <div className="border-t border-slate-800 px-4 py-4 space-y-3">
           {user === undefined ? null : user ? (
             <>
               <ProfileBadge gameId={gameId} />
-              <button
-                onClick={handleLogout}
-                className="w-full btn-secondary text-xs"
-              >
-                Logout
-              </button>
+              <button onClick={handleLogout} className="w-full btn-secondary text-xs">Logout</button>
             </>
           ) : (
-            <button onClick={handleLogin} className="w-full btn-primary text-xs">
-              Login with Google
-            </button>
+            <button onClick={handleLogin} className="w-full btn-primary text-xs">Login with Google</button>
           )}
         </div>
       </aside>
@@ -211,7 +205,6 @@ export function AppShell() {
       {/* ── Top header ── */}
       <header className="border-b border-slate-800/80 bg-slate-950/70 backdrop-blur sticky top-0 z-30">
         <nav className="mx-auto flex max-w-6xl items-center justify-between px-4 py-3">
-          {/* Hamburger (mobile only) + Logo */}
           <div className="flex items-center gap-3">
             <button
               className="rounded-lg p-1.5 text-slate-300 hover:bg-slate-800 hover:text-slate-100 transition-colors md:hidden"
@@ -233,17 +226,12 @@ export function AppShell() {
             </Link>
           </div>
 
-          {/* Desktop nav */}
           <div className="hidden items-center gap-6 text-sm font-medium md:flex">
             {navItems.map((item) => (
               <Link
                 key={item.to}
                 to={item.to}
-                className={
-                  location.pathname === item.to
-                    ? 'text-sky-400'
-                    : 'text-slate-300 hover:text-sky-300 transition-colors'
-                }
+                className={location.pathname === item.to ? 'text-sky-400' : 'text-slate-300 hover:text-sky-300 transition-colors'}
               >
                 {item.label}
               </Link>
@@ -258,7 +246,6 @@ export function AppShell() {
             )}
           </div>
 
-          {/* Desktop auth */}
           <div className="hidden items-center gap-2 md:flex">
             {user === undefined ? null : user ? (
               <>
@@ -278,8 +265,8 @@ export function AppShell() {
 
       <footer className="border-t border-slate-800/80 bg-slate-950/80">
         <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-4 text-xs text-slate-500">
-          <span>\u00a9 {new Date().getFullYear()} Tournvia. All rights reserved.</span>
-          <span className="hidden md:inline">Competitive mobile gaming \u2014 fair play only.</span>
+          <span>© {new Date().getFullYear()} Tournvia. All rights reserved.</span>
+          <span className="hidden md:inline">Competitive mobile gaming — fair play only.</span>
         </div>
       </footer>
     </div>
@@ -288,53 +275,20 @@ export function AppShell() {
 
 // ── Inline SVG icons ──
 function HomeIcon() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="M3 9.5L12 3l9 6.5V20a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9.5z" />
-      <polyline points="9 21 9 12 15 12 15 21" />
-    </svg>
-  )
+  return <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M3 9.5L12 3l9 6.5V20a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9.5z" /><polyline points="9 21 9 12 15 12 15 21" /></svg>
 }
 function GamepadIcon() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <rect x="2" y="6" width="20" height="12" rx="2" />
-      <path d="M6 12h4M8 10v4" />
-      <circle cx="16" cy="12" r="1" fill="currentColor" />
-      <circle cx="18" cy="10" r="1" fill="currentColor" />
-    </svg>
-  )
+  return <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="2" y="6" width="20" height="12" rx="2" /><path d="M6 12h4M8 10v4" /><circle cx="16" cy="12" r="1" fill="currentColor" /><circle cx="18" cy="10" r="1" fill="currentColor" /></svg>
 }
 function TrophyIcon() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="M8 21h8M12 17v4" />
-      <path d="M7 4H4a1 1 0 0 0-1 1v3a4 4 0 0 0 4 4h1" />
-      <path d="M17 4h3a1 1 0 0 1 1 1v3a4 4 0 0 1-4 4h-1" />
-      <path d="M7 4h10v7a5 5 0 0 1-10 0V4z" />
-    </svg>
-  )
+  return <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M8 21h8M12 17v4" /><path d="M7 4H4a1 1 0 0 0-1 1v3a4 4 0 0 0 4 4h1" /><path d="M17 4h3a1 1 0 0 1 1 1v3a4 4 0 0 1-4 4h-1" /><path d="M7 4h10v7a5 5 0 0 1-10 0V4z" /></svg>
 }
 function UserIcon() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <circle cx="12" cy="8" r="4" />
-      <path d="M4 20c0-4 3.6-7 8-7s8 3 8 7" />
-    </svg>
-  )
+  return <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><circle cx="12" cy="8" r="4" /><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7" /></svg>
 }
 function ShieldIcon() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
-    </svg>
-  )
+  return <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" /></svg>
 }
 function MailIcon() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <rect x="2" y="4" width="20" height="16" rx="2" />
-      <polyline points="2 4 12 13 22 4" />
-    </svg>
-  )
+  return <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="2" y="4" width="20" height="16" rx="2" /><polyline points="2 4 12 13 22 4" /></svg>
 }
