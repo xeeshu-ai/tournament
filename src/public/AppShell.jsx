@@ -3,49 +3,6 @@ import { Link, useLocation, useParams, useNavigate, Outlet } from 'react-router-
 import { supabasePlayer } from '../lib/supabaseClient'
 import { usePlayer } from '../lib/PlayerContext'
 import { getGame } from '../lib/constants'
-import { AccountSetupModal } from './AccountSetupModal'
-
-/**
- * ProfileBadge — 2 states (Tournvia profile only):
- *   🔴 RED   — profile_setup = false  → clickable, opens setup modal
- *   🟢 GREEN — profile_setup = true   → clickable, opens setup modal (to edit)
- *
- * Game verification is shown on the game profile page, not here.
- */
-function ProfileBadge({ gameId }) {
-  const { user, profile, openSetupModal } = usePlayer()
-
-  if (!user || profile === undefined || profile === null) return null
-
-  // 🔴 RED — Tournvia profile not set up
-  if (!profile.profile_setup) {
-    return (
-      <button
-        onClick={openSetupModal}
-        className="inline-flex items-center gap-2 rounded-full border border-red-500/50 bg-red-500/10 px-3 py-1 text-xs font-medium text-red-300 hover:border-red-400/70 hover:bg-red-500/15 transition-colors"
-        aria-label="Complete your profile"
-      >
-        <span className="relative flex h-2 w-2">
-          <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-red-400 opacity-75" />
-          <span className="relative inline-flex h-2 w-2 rounded-full bg-red-500" />
-        </span>
-        Complete profile
-      </button>
-    )
-  }
-
-  // 🟢 GREEN — Tournvia profile done, show name (click to edit)
-  return (
-    <button
-      onClick={openSetupModal}
-      className="inline-flex items-center gap-2 rounded-full border border-emerald-500/40 bg-emerald-500/10 px-3 py-1 text-xs font-medium text-emerald-300 hover:border-emerald-400/60 hover:bg-emerald-500/15 transition-colors"
-      aria-label="Edit your profile"
-    >
-      <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500" />
-      <span className="max-w-[80px] truncate md:max-w-[120px]">{profile.full_name}</span>
-    </button>
-  )
-}
 
 function MenuIcon({ open }) {
   return (
@@ -61,28 +18,20 @@ export function AppShell() {
   const location = useLocation()
   const { gameId } = useParams()
   const navigate = useNavigate()
-  const { user, setupModalOpen } = usePlayer()
+  const { user, profile } = usePlayer()
   const [sidebarOpen, setSidebarOpen] = React.useState(false)
 
   const game = gameId ? getGame(gameId) : null
 
   React.useEffect(() => { setSidebarOpen(false) }, [location.pathname])
-
   React.useEffect(() => {
-    document.body.style.overflow = (sidebarOpen || setupModalOpen) ? 'hidden' : ''
+    document.body.style.overflow = sidebarOpen ? 'hidden' : ''
     return () => { document.body.style.overflow = '' }
-  }, [sidebarOpen, setupModalOpen])
-
-  const handleLogin = async () => {
-    await supabasePlayer.auth.signInWithOAuth({
-      provider: 'google',
-      options: { redirectTo: window.location.origin + '/select-game' },
-    })
-  }
+  }, [sidebarOpen])
 
   const handleLogout = async () => {
     await supabasePlayer.auth.signOut()
-    navigate('/select-game')
+    navigate('/login')
   }
 
   const navItems = game
@@ -93,17 +42,23 @@ export function AppShell() {
         { to: `/${game.id}/contact`,     label: 'Contact',     icon: <MailIcon /> },
       ]
     : [
-        { to: '/',            label: 'Home',    icon: <HomeIcon /> },
         { to: '/select-game', label: 'Games',   icon: <GamepadIcon /> },
         { to: '/rules',       label: 'Rules',   icon: <ShieldIcon /> },
         { to: '/contact',     label: 'Contact', icon: <MailIcon /> },
       ]
 
+  const PlayerChip = () => {
+    if (!profile?.profile_setup) return null
+    return (
+      <span className="inline-flex items-center gap-2 rounded-full border border-emerald-500/40 bg-emerald-500/10 px-3 py-1 text-xs font-medium text-emerald-300">
+        <span className="inline-flex h-2 w-2 rounded-full bg-emerald-500" />
+        <span className="max-w-[100px] truncate">{profile.full_name}</span>
+      </span>
+    )
+  }
+
   return (
     <div className="min-h-screen bg-gradient-to-b from-slate-950 via-slate-950 to-slate-900">
-
-      {/* Setup modal — z-[9999] sits above everything */}
-      {setupModalOpen && <AccountSetupModal />}
 
       {/* Sidebar backdrop */}
       {sidebarOpen && (
@@ -117,7 +72,7 @@ export function AppShell() {
         aria-label="Mobile navigation"
       >
         <div className="flex items-center justify-between border-b border-slate-800 px-5 py-4">
-          <Link to={game ? `/${game.id}/tournaments` : '/'} className="flex items-center gap-2">
+          <Link to={game ? `/${game.id}/tournaments` : '/select-game'} className="flex items-center gap-2">
             <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-sky-500 text-slate-950 shadow-lg shadow-sky-500/40">
               <span className="text-base font-black tracking-tight">T</span>
             </div>
@@ -132,29 +87,21 @@ export function AppShell() {
         </div>
 
         <nav className="flex-1 overflow-y-auto px-3 py-4 space-y-1">
-          {/* Back to games — only inside a game world */}
           {game && (
             <button
               onClick={() => { navigate('/select-game'); setSidebarOpen(false) }}
               className="flex w-full items-center gap-3 rounded-xl border border-slate-700/60 bg-slate-800/40 px-3 py-2.5 text-xs font-medium text-slate-400 hover:border-slate-500 hover:text-slate-200 transition-colors mb-3"
             >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M15 18l-6-6 6-6" />
-              </svg>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M15 18l-6-6 6-6" /></svg>
               Back to games
             </button>
           )}
-
           {navItems.map((item) => {
             const isActive = location.pathname === item.to
             return (
-              <Link
-                key={item.to}
-                to={item.to}
+              <Link key={item.to} to={item.to}
                 className={`flex items-center gap-3 rounded-xl px-3 py-3 text-sm font-medium transition-colors border ${
-                  isActive
-                    ? 'bg-sky-500/15 text-sky-400 border-sky-500/30'
-                    : 'text-slate-300 hover:bg-slate-800 hover:text-slate-100 border-transparent'
+                  isActive ? 'bg-sky-500/15 text-sky-400 border-sky-500/30' : 'text-slate-300 hover:bg-slate-800 hover:text-slate-100 border-transparent'
                 }`}
               >
                 <span className={isActive ? 'text-sky-400' : 'text-slate-500'}>{item.icon}</span>
@@ -166,27 +113,19 @@ export function AppShell() {
         </nav>
 
         <div className="border-t border-slate-800 px-4 py-4 space-y-3">
-          {user === undefined ? null : user ? (
-            <>
-              <ProfileBadge gameId={gameId} />
-              <button onClick={handleLogout} className="w-full btn-secondary text-xs">Logout</button>
-            </>
-          ) : (
-            <button onClick={handleLogin} className="w-full btn-primary text-xs">Login with Google</button>
-          )}
+          <PlayerChip />
+          <button onClick={handleLogout} className="w-full btn-secondary text-xs">Logout</button>
         </div>
       </aside>
 
       {/* Top header */}
       <header className="border-b border-slate-800/80 bg-slate-950/70 backdrop-blur sticky top-0 z-30">
         <nav className="mx-auto flex max-w-6xl items-center justify-between px-4 py-3">
-
-          {/* Left: hamburger + logo */}
           <div className="flex items-center gap-3">
             <button className="rounded-lg p-1.5 text-slate-300 hover:bg-slate-800 hover:text-slate-100 transition-colors md:hidden" onClick={() => setSidebarOpen(true)} aria-label="Open menu">
               <MenuIcon open={false} />
             </button>
-            <Link to={game ? `/${game.id}/tournaments` : '/'} className="flex items-center gap-2">
+            <Link to={game ? `/${game.id}/tournaments` : '/select-game'} className="flex items-center gap-2">
               <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-sky-500 text-slate-950 shadow-lg shadow-sky-500/40">
                 <span className="text-lg font-black tracking-tight">T</span>
               </div>
@@ -197,47 +136,28 @@ export function AppShell() {
             </Link>
           </div>
 
-          {/* Center: desktop nav */}
           <div className="hidden items-center gap-1 md:flex">
-            {/* Back to games — desktop, only inside a game world */}
             {game && (
-              <button
-                onClick={() => navigate('/select-game')}
+              <button onClick={() => navigate('/select-game')}
                 className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium text-slate-400 hover:bg-slate-800 hover:text-slate-200 transition-colors mr-2"
               >
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M15 18l-6-6 6-6" />
-                </svg>
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M15 18l-6-6 6-6" /></svg>
                 Games
               </button>
             )}
             {navItems.map((item) => (
-              <Link
-                key={item.to}
-                to={item.to}
+              <Link key={item.to} to={item.to}
                 className={`rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${
-                  location.pathname === item.to
-                    ? 'bg-sky-500/10 text-sky-400'
-                    : 'text-slate-300 hover:text-sky-300 hover:bg-slate-800/60'
+                  location.pathname === item.to ? 'bg-sky-500/10 text-sky-400' : 'text-slate-300 hover:text-sky-300 hover:bg-slate-800/60'
                 }`}
-              >
-                {item.label}
-              </Link>
+              >{item.label}</Link>
             ))}
           </div>
 
-          {/* Right: auth */}
           <div className="hidden items-center gap-2 md:flex">
-            {user === undefined ? null : user ? (
-              <>
-                <ProfileBadge gameId={gameId} />
-                <button onClick={handleLogout} className="btn-secondary text-xs">Logout</button>
-              </>
-            ) : (
-              <button onClick={handleLogin} className="btn-primary text-xs">Login with Google</button>
-            )}
+            <PlayerChip />
+            <button onClick={handleLogout} className="btn-secondary text-xs">Logout</button>
           </div>
-
         </nav>
       </header>
 
@@ -255,7 +175,6 @@ export function AppShell() {
   )
 }
 
-function HomeIcon() { return <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M3 9.5L12 3l9 6.5V20a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9.5z" /><polyline points="9 21 9 12 15 12 15 21" /></svg> }
 function GamepadIcon() { return <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="2" y="6" width="20" height="12" rx="2" /><path d="M6 12h4M8 10v4" /><circle cx="16" cy="12" r="1" fill="currentColor" /><circle cx="18" cy="10" r="1" fill="currentColor" /></svg> }
 function TrophyIcon() { return <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M8 21h8M12 17v4" /><path d="M7 4H4a1 1 0 0 0-1 1v3a4 4 0 0 0 4 4h1" /><path d="M17 4h3a1 1 0 0 1 1 1v3a4 4 0 0 1-4 4h-1" /><path d="M7 4h10v7a5 5 0 0 1-10 0V4z" /></svg> }
 function UserIcon() { return <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><circle cx="12" cy="8" r="4" /><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7" /></svg> }

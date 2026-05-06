@@ -1,258 +1,153 @@
 import React from 'react'
-import { useNavigate } from 'react-router-dom'
-import { usePlayer } from '../../lib/PlayerContext'
-import { useGame } from '../../lib/GameContext'
+import { useNavigate, useParams } from 'react-router-dom'
 import { supabasePlayer } from '../../lib/supabaseClient'
+import { usePlayer } from '../../lib/PlayerContext'
+
+const GAME_META = {
+  free_fire: { label: 'Free Fire', uidLabel: 'Free Fire UID', ignLabel: 'In-Game Name (IGN)', uidHint: 'Your numeric Free Fire UID', ignHint: 'Your in-game nickname' },
+  bgmi:      { label: 'BGMI',      uidLabel: 'BGMI UID',       ignLabel: 'In-Game Name (IGN)', uidHint: 'Your numeric BGMI UID',       ignHint: 'Your in-game nickname' },
+}
 
 export function GameSetup() {
+  const { gameId } = useParams()
+  const { profile, fetchGameProfile } = usePlayer()
   const navigate = useNavigate()
-  const { user, profile } = usePlayer()
-  const { game, gameProfile, gpLoading, refreshGameProfile } = useGame()
 
-  const [form, setForm] = React.useState({ game_uid: '', in_game_name: '' })
-  const [status, setStatus] = React.useState(null) // null | 'loading' | 'uid-taken' | 'name-taken' | 'error' | 'success'
+  const meta = GAME_META[gameId] || { label: gameId, uidLabel: 'Game UID', ignLabel: 'In-Game Name', uidHint: '', ignHint: '' }
 
-  // Pre-fill form if resubmitting after rejection
+  const [uid, setUid] = React.useState('')
+  const [ign, setIgn] = React.useState('')
+  const [saving, setSaving] = React.useState(false)
+  const [error, setError] = React.useState(null)
+  const [checking, setChecking] = React.useState(true)
+
+  // Check if game profile already exists — if so, skip setup
   React.useEffect(() => {
-    if (gameProfile?.status === 'rejected') {
-      setForm({
-        game_uid: gameProfile.game_uid || '',
-        in_game_name: gameProfile.in_game_name || '',
-      })
-    }
-  }, [gameProfile])
-
-  if (!user || !profile || !game || gpLoading) return null
-
-  // Already verified — nothing to do here
-  if (gameProfile?.status === 'verified') {
-    return (
-      <div className="mx-auto max-w-md py-8 text-center space-y-4">
-        <div className="text-4xl">✅</div>
-        <h2 className="text-lg font-semibold text-slate-50">{game.name} profile verified</h2>
-        <p className="text-xs text-slate-400">
-          Your UID <span className="font-mono text-slate-200">{gameProfile.game_uid}</span> is verified and active.
-        </p>
-        <button onClick={() => navigate(`/${game.id}/tournaments`)} className="btn-primary text-xs">
-          Go to tournaments
-        </button>
-      </div>
-    )
-  }
-
-  // Pending — waiting for admin
-  if (gameProfile?.status === 'pending') {
-    return (
-      <div className="mx-auto max-w-md py-8 space-y-5">
-        <div className="card text-center space-y-4">
-          <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full border border-amber-500/40 bg-amber-500/10">
-            <span className="text-xl">⏳</span>
-          </div>
-          <div>
-            <h2 className="text-base font-semibold text-slate-50">Waiting for admin review</h2>
-            <p className="mt-1 text-xs text-slate-400">
-              Your {game.name} profile has been submitted and is under review. This usually takes a few hours.
-            </p>
-          </div>
-          <div className="rounded-xl border border-slate-700 bg-slate-950/60 px-4 py-3 text-left space-y-2">
-            <div className="flex items-center justify-between">
-              <span className="text-[11px] uppercase tracking-wide text-slate-400">{game.uidLabel}</span>
-              <span className="font-mono text-xs text-slate-100">{gameProfile.game_uid}</span>
-            </div>
-            <div className="flex items-center justify-between">
-              <span className="text-[11px] uppercase tracking-wide text-slate-400">In-game name</span>
-              <span className="text-xs text-slate-100">{gameProfile.in_game_name || '—'}</span>
-            </div>
-            <div className="flex items-center justify-between">
-              <span className="text-[11px] uppercase tracking-wide text-slate-400">Status</span>
-              <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-amber-400">
-                <span className="relative flex h-1.5 w-1.5">
-                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-amber-400 opacity-75" />
-                  <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-amber-500" />
-                </span>
-                Pending
-              </span>
-            </div>
-          </div>
-          <button
-            onClick={() => navigate(`/${game.id}/tournaments`)}
-            className="btn-secondary w-full text-xs"
-          >
-            Back to tournaments
-          </button>
-        </div>
-      </div>
-    )
-  }
-
-  const isResubmit = gameProfile?.status === 'rejected'
-
-  const handleChange = (e) => {
-    const { name, value } = e.target
-    setForm((f) => ({ ...f, [name]: value }))
-  }
+    if (!profile?.id) return
+    fetchGameProfile(profile.id, gameId).then(gp => {
+      if (gp) navigate(`/${gameId}/tournaments`, { replace: true })
+      else setChecking(false)
+    })
+  }, [profile?.id, gameId])
 
   const handleSubmit = async (e) => {
     e.preventDefault()
-    setStatus('loading')
+    setError(null)
 
-    if (isResubmit) {
-      // Update existing rejected row
-      const { error } = await supabasePlayer
-        .from('game_profiles')
-        .update({
-          game_uid: form.game_uid.trim(),
-          in_game_name: form.in_game_name.trim(),
-          status: 'pending',
-          rejection_reason: null,
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', gameProfile.id)
+    const gameUid = uid.trim()
+    const inGameName = ign.trim()
 
-      if (error) { setStatus('error'); return }
-    } else {
-      // Fresh insert
-      const { error } = await supabasePlayer
-        .from('game_profiles')
-        .insert({
-          player_id: profile.id,
-          game_id: game.id,
-          game_uid: form.game_uid.trim(),
-          in_game_name: form.in_game_name.trim(),
-          status: 'pending',
-        })
+    if (!gameUid) { setError(`${meta.uidLabel} is required.`); return }
+    if (!inGameName) { setError(`${meta.ignLabel} is required.`); return }
 
-      if (error) {
-        if (error.code === '23505') setStatus('uid-taken')
-        else setStatus('error')
-        return
-      }
-    }
+    setSaving(true)
 
-    await refreshGameProfile()
-    setStatus('success')
-    setTimeout(() => navigate(`/${game.id}/tournaments`), 1400)
+    // Upsert game profile (insert or update by player_id + game_id)
+    const { error: err } = await supabasePlayer
+      .from('game_profiles')
+      .upsert(
+        { player_id: profile.id, game_id: gameId, game_uid: gameUid, in_game_name: inGameName, status: 'pending' },
+        { onConflict: 'player_id,game_id' }
+      )
+
+    if (err) { setError(err.message); setSaving(false); return }
+
+    navigate(`/${gameId}/tournaments`, { replace: true })
   }
 
-  if (status === 'success') {
+  if (checking) {
     return (
-      <div className="mx-auto max-w-md py-8 text-center space-y-3">
-        <div className="text-4xl">🎮</div>
-        <h2 className="text-lg font-semibold text-slate-50">Profile submitted!</h2>
-        <p className="text-xs text-slate-400">
-          Your {game.name} UID is under review. Admins will verify it shortly.
-        </p>
+      <div className="flex min-h-screen items-center justify-center bg-slate-950">
+        <span className="h-8 w-8 rounded-full border-2 border-sky-500 border-t-transparent animate-spin" />
       </div>
     )
   }
 
   return (
-    <div className="mx-auto max-w-md space-y-5 py-4">
-      {/* Header */}
-      <header className="space-y-1">
-        <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-sky-400">
-          {isResubmit ? `Resubmit — ${game.name}` : `Setup — ${game.name}`}
-        </p>
-        <h1 className="text-xl font-semibold text-slate-50">
-          {isResubmit ? 'Fix your profile' : `Add your ${game.name} profile`}
-        </h1>
-        <p className="text-xs text-slate-400">
-          {isResubmit
-            ? 'Your previous submission was rejected. Correct the details below and resubmit.'
-            : `Enter your exact ${game.name} in-game name and UID. An admin will verify them before you can join tournaments.`}
-        </p>
-      </header>
-
-      {/* Rejection reason banner */}
-      {isResubmit && gameProfile.rejection_reason && (
-        <div className="rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 space-y-1">
-          <p className="text-[11px] font-semibold uppercase tracking-wide text-red-400">Rejection reason</p>
-          <p className="text-xs text-red-300">{gameProfile.rejection_reason}</p>
+    <div className="flex min-h-screen flex-col items-center justify-center bg-gradient-to-b from-slate-950 via-slate-900 to-slate-950 px-4">
+      {/* Logo */}
+      <div className="mb-8 flex flex-col items-center gap-3">
+        <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-sky-500 shadow-xl shadow-sky-500/30">
+          <span className="text-2xl font-black text-slate-950">T</span>
         </div>
-      )}
-
-      <form onSubmit={handleSubmit} className="card space-y-5">
-
-        {/* In-game name — REQUIRED, must match exactly */}
-        <div>
-          <label className="label" htmlFor="in_game_name">
-            In-game name <span className="text-red-400">*</span>
-          </label>
-          <input
-            id="in_game_name"
-            name="in_game_name"
-            className="input"
-            value={form.in_game_name}
-            onChange={handleChange}
-            placeholder={`Your exact ${game.name} nickname`}
-            required
-            autoComplete="off"
-            autoCorrect="off"
-            autoCapitalize="off"
-            spellCheck={false}
-          />
-          <p className="mt-1.5 text-[11px] text-amber-400">
-            ⚠️ Must match your in-game name exactly — including capitalisation and spaces.
-          </p>
+        <div className="text-center">
+          <h1 className="text-xl font-bold text-white">Set up {meta.label}</h1>
+          <p className="mt-1 text-sm text-slate-400">Link your {meta.label} account to Tournvia</p>
         </div>
+      </div>
 
-        {/* UID */}
-        <div>
-          <label className="label" htmlFor="game_uid">
-            {game.uidLabel} <span className="text-red-400">*</span>
-          </label>
-          <input
-            id="game_uid"
-            name="game_uid"
-            className="input font-mono"
-            value={form.game_uid}
-            onChange={handleChange}
-            placeholder={game.uidPlaceholder}
-            required
-            inputMode="numeric"
-            autoComplete="off"
-          />
-          {game.uidHint && (
-            <p className="mt-1.5 text-[11px] text-slate-500">{game.uidHint}</p>
-          )}
+      {/* Steps indicator */}
+      <div className="mb-6 flex items-center gap-2">
+        <div className="flex h-6 w-6 items-center justify-center rounded-full border border-sky-500 text-xs font-bold text-sky-400">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12" /></svg>
         </div>
+        <span className="text-xs text-slate-500">Tournvia Profile</span>
+        <div className="mx-1 h-px w-8 bg-sky-500/40" />
+        <div className="flex h-6 w-6 items-center justify-center rounded-full bg-sky-500 text-xs font-bold text-slate-950">2</div>
+        <span className="text-xs text-sky-400 font-medium">Game Profile</span>
+      </div>
 
-        {/* Requirements notice */}
-        {(game.minLevel || game.minRank) && (
-          <div className="rounded-xl border border-slate-700 bg-slate-900/60 px-3 py-2.5 text-[11px] text-slate-400">
-            <span className="font-semibold text-slate-300">Eligibility: </span>
-            Level {game.minLevel}+{game.minRank ? `, ${game.minRank} rank or above` : ''}. Mobile only — no emulators.
+      {/* Card */}
+      <form onSubmit={handleSubmit} className="w-full max-w-sm rounded-2xl border border-slate-800 bg-slate-900/80 p-8 shadow-2xl backdrop-blur">
+        <p className="mb-6 text-sm text-slate-400">Your {meta.label} details for tournament registrations.</p>
+
+        {error && (
+          <div className="mb-4 rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-300">
+            {error}
           </div>
         )}
 
+        <div className="space-y-4">
+          <div>
+            <label className="mb-1.5 block text-xs font-medium text-slate-300" htmlFor="ign">
+              {meta.ignLabel} <span className="text-red-400">*</span>
+            </label>
+            <input
+              id="ign"
+              type="text"
+              value={ign}
+              onChange={e => setIgn(e.target.value)}
+              placeholder={meta.ignHint}
+              maxLength={32}
+              className="w-full rounded-xl border border-slate-700 bg-slate-800 px-4 py-2.5 text-sm text-white placeholder-slate-500 outline-none transition focus:border-sky-500 focus:ring-1 focus:ring-sky-500"
+            />
+          </div>
+
+          <div>
+            <label className="mb-1.5 block text-xs font-medium text-slate-300" htmlFor="uid">
+              {meta.uidLabel} <span className="text-red-400">*</span>
+            </label>
+            <input
+              id="uid"
+              type="text"
+              value={uid}
+              onChange={e => setUid(e.target.value.replace(/\D/g, ''))}
+              placeholder={meta.uidHint}
+              maxLength={20}
+              className="w-full rounded-xl border border-slate-700 bg-slate-800 px-4 py-2.5 text-sm text-white placeholder-slate-500 outline-none transition focus:border-sky-500 focus:ring-1 focus:ring-sky-500"
+            />
+            <p className="mt-1 text-xs text-slate-500">Numbers only — find it in your {meta.label} profile</p>
+          </div>
+        </div>
+
         <button
           type="submit"
-          className="btn-primary w-full"
-          disabled={status === 'loading'}
+          disabled={saving}
+          className="mt-6 flex w-full items-center justify-center gap-2 rounded-xl bg-sky-500 px-4 py-3 text-sm font-semibold text-slate-950 transition hover:bg-sky-400 disabled:opacity-50"
         >
-          {status === 'loading'
-            ? 'Submitting…'
-            : isResubmit
-            ? `Resubmit ${game.name} profile`
-            : `Submit ${game.name} profile`}
+          {saving ? (
+            <><span className="h-4 w-4 rounded-full border-2 border-slate-950 border-t-transparent animate-spin" /> Saving…</>
+          ) : `Enter ${meta.label} →`}
         </button>
 
-        {status === 'uid-taken' && (
-          <p className="text-[11px] text-red-400">
-            This UID is already registered on Tournvia. If this is your account, contact support.
-          </p>
-        )}
-        {status === 'error' && (
-          <p className="text-[11px] text-red-400">Something went wrong. Please try again.</p>
-        )}
+        <button
+          type="button"
+          onClick={() => navigate('/select-game')}
+          className="mt-3 w-full rounded-xl px-4 py-2.5 text-xs text-slate-500 transition hover:text-slate-300"
+        >
+          ← Back to game selection
+        </button>
       </form>
-
-      <button
-        onClick={() => navigate(`/${game.id}/tournaments`)}
-        className="text-[11px] text-slate-500 hover:text-slate-300 transition-colors"
-      >
-        ← Back to tournaments
-      </button>
     </div>
   )
 }

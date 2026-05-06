@@ -3,74 +3,53 @@ import { supabasePlayer } from './supabaseClient'
 
 const PlayerContext = React.createContext(null)
 
-let _fetchLock = null
-
-const SELECT_COLS = 'id, auth_id, full_name, email, phone, ff_uid, status, rejection_reason, created_at, profile_setup'
+const SELECT_COLS = 'id, auth_id, full_name, email, phone, status, rejection_reason, created_at, profile_setup'
 
 export function PlayerProvider({ children }) {
-  const [user, setUser] = React.useState(undefined)
+  const [user, setUser] = React.useState(undefined)   // undefined = loading, null = logged out
   const [profile, setProfile] = React.useState(undefined)
-  const [setupModalOpen, setSetupModalOpen] = React.useState(false)
 
   async function fetchOrCreateProfile(u) {
     if (!u) { setProfile(null); return }
 
-    if (_fetchLock) {
-      const result = await _fetchLock
-      if (result) {
-        setProfile(result)
-        if (!result.profile_setup) setSetupModalOpen(true)
-      }
-      return
-    }
+    // 1. Try fetch existing row
+    const { data: existing } = await supabasePlayer
+      .from('players')
+      .select(SELECT_COLS)
+      .eq('auth_id', u.id)
+      .maybeSingle()
 
-    _fetchLock = (async () => {
-      // 1. Try to fetch the existing row first
-      const { data: existing } = await supabasePlayer
+    if (existing) { setProfile(existing); return }
+
+    // 2. Insert new row
+    const { data: inserted, error } = await supabasePlayer
+      .from('players')
+      .insert({ auth_id: u.id, email: u.email, full_name: '', status: 'pending', profile_setup: false })
+      .select(SELECT_COLS)
+      .maybeSingle()
+
+    if (error) {
+      // Race condition — fetch again
+      const { data: fallback } = await supabasePlayer
         .from('players')
         .select(SELECT_COLS)
         .eq('auth_id', u.id)
         .maybeSingle()
-
-      if (existing) return existing
-
-      // 2. Row doesn't exist — INSERT a new one
-      const { data: inserted, error: insertError } = await supabasePlayer
-        .from('players')
-        .insert({
-          auth_id: u.id,
-          email: u.email,
-          full_name: '',
-          status: 'pending',
-          profile_setup: false,
-        })
-        .select(SELECT_COLS)
-        .maybeSingle()
-
-      if (insertError) {
-        // Concurrent insert from another tab — just fetch the row
-        const { data: fallback } = await supabasePlayer
-          .from('players')
-          .select(SELECT_COLS)
-          .eq('auth_id', u.id)
-          .maybeSingle()
-        return fallback ?? null
-      }
-
-      return inserted ?? null
-    })()
-
-    try {
-      const result = await _fetchLock
-      if (result) {
-        setProfile(result)
-        if (!result.profile_setup) setSetupModalOpen(true)
-      } else {
-        setProfile(null)
-      }
-    } finally {
-      _fetchLock = null
+      setProfile(fallback ?? null)
+      return
     }
+    setProfile(inserted ?? null)
+  }
+
+  async function fetchGameProfile(playerId, gameId) {
+    if (!playerId || !gameId) return null
+    const { data } = await supabasePlayer
+      .from('game_profiles')
+      .select('id, game_id, game_uid, in_game_name, status, rejection_reason')
+      .eq('player_id', playerId)
+      .eq('game_id', gameId)
+      .maybeSingle()
+    return data ?? null
   }
 
   React.useEffect(() => {
@@ -89,23 +68,12 @@ export function PlayerProvider({ children }) {
     return () => sub.subscription.unsubscribe()
   }, [])
 
-  function refreshProfile() {
-    if (user) return fetchOrCreateProfile(user)
-    return Promise.resolve()
+  async function refreshProfile() {
+    if (user) await fetchOrCreateProfile(user)
   }
 
-  function openSetupModal() { setSetupModalOpen(true) }
-  function closeSetupModal() { setSetupModalOpen(false) }
-
   return (
-    <PlayerContext.Provider value={{
-      user,
-      profile,
-      refreshProfile,
-      setupModalOpen,
-      openSetupModal,
-      closeSetupModal,
-    }}>
+    <PlayerContext.Provider value={{ user, profile, refreshProfile, fetchGameProfile }}>
       {children}
     </PlayerContext.Provider>
   )
