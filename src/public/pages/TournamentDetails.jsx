@@ -2,6 +2,7 @@ import React from 'react'
 import { useParams } from 'react-router-dom'
 import { supabasePlayer } from '../../lib/supabaseClient'
 import { usePlayer } from '../../lib/PlayerContext'
+import { useGame } from '../../lib/GameContext'
 import { getModeLabel } from '../../lib/constants'
 
 // ─── Teammate UID Validator ────────────────────────────────────────────────────────────────────────
@@ -14,14 +15,14 @@ function useUidValidation(uid, hostUid) {
     setState({ status: 'checking', name: null })
     const timer = setTimeout(async () => {
       const { data } = await supabasePlayer
-        .from('players')
-        .select('full_name, is_verified')
-        .eq('ff_uid', trimmed)
+        .from('game_profiles')
+        .select('in_game_name, status')
+        .eq('game_uid', trimmed)
         .single()
-      if (data && data.is_verified) {
-        setState({ status: 'valid', name: data.full_name })
-      } else if (data && !data.is_verified) {
-        setState({ status: 'invalid', name: null, msg: 'Player not approved yet' })
+      if (data && data.status === 'verified') {
+        setState({ status: 'valid', name: data.in_game_name })
+      } else if (data && data.status !== 'verified') {
+        setState({ status: 'invalid', name: null, msg: 'Player UID not verified yet' })
       } else {
         setState({ status: 'invalid', name: null, msg: 'No player found with this UID' })
       }
@@ -40,7 +41,7 @@ function TeammateInput({ index, value, onChange, hostUid }) {
         <input
           type="text"
           className={`input flex-1 ${v.status === 'valid' ? 'border-emerald-500/60' : v.status === 'invalid' ? 'border-red-500/60' : ''}`}
-          placeholder={`Teammate ${index + 1} FF UID`}
+          placeholder={`Teammate ${index + 1} UID`}
           value={value}
           onChange={e => onChange(e.target.value)}
         />
@@ -326,7 +327,7 @@ function EndedTournamentPanel({ tournament }) {
 // ─── Room Code Card (host-only) ─────────────────────────────────────────────────────────────────────
 
 function RoomCodeCard({ tournamentId }) {
-  const [roomCode, setRoomCode] = React.useState(undefined) // undefined = loading
+  const [roomCode, setRoomCode] = React.useState(undefined)
   const [shown, setShown] = React.useState(false)
 
   React.useEffect(() => {
@@ -415,7 +416,7 @@ function RoomCodeCard({ tournamentId }) {
 
 // ─── Already Registered Panel ──────────────────────────────────────────────────
 
-function AlreadyRegisteredPanel({ tournament, reg: initialReg, profile, onUpdated }) {
+function AlreadyRegisteredPanel({ tournament, reg: initialReg, gameProfile, onUpdated }) {
   const slots = teammateCount(tournament.team_size)
   const [mates, setMates] = React.useState([
     initialReg.teammate_uid_1 || '',
@@ -436,7 +437,9 @@ function AlreadyRegisteredPanel({ tournament, reg: initialReg, profile, onUpdate
     ])
   }, [initialReg])
 
-  const isHost = profile?.ff_uid && String(profile.ff_uid).trim() === String(reg.host_uid).trim()
+  // Use gameProfile.game_uid (the correct source) to determine if current user is the host
+  const myUid = gameProfile?.game_uid ? String(gameProfile.game_uid).trim() : ''
+  const isHost = myUid && myUid === String(reg.host_uid).trim()
 
   async function handleSaveMates() {
     setSaving(true); setSaveErr(''); setSaveOk(false)
@@ -445,12 +448,12 @@ function AlreadyRegisteredPanel({ tournament, reg: initialReg, profile, onUpdate
       const uid = mates[i]?.trim()
       if (!uid) continue
       const { data: p } = await supabasePlayer
-        .from('players')
-        .select('full_name, is_verified')
-        .eq('ff_uid', uid)
+        .from('game_profiles')
+        .select('in_game_name, status')
+        .eq('game_uid', uid)
         .single()
       if (!p) { setSaveErr(`❌ Teammate ${i + 1}: No player found with UID "${uid}". Only registered app users can be added.`); setSaving(false); return }
-      if (!p.is_verified) { setSaveErr(`❌ Teammate ${i + 1}: Player "${p.full_name}" is not approved by admin yet.`); setSaving(false); return }
+      if (p.status !== 'verified') { setSaveErr(`❌ Teammate ${i + 1}: Player "${p.in_game_name}" is not verified yet.`); setSaving(false); return }
     }
 
     const t1 = slots >= 1 ? mates[0].trim() || null : null
@@ -522,19 +525,6 @@ function AlreadyRegisteredPanel({ tournament, reg: initialReg, profile, onUpdate
             <div className="flex justify-between">
               <span className="text-slate-400">Role</span>
               <span className="text-amber-400 text-[11px] font-semibold">Host 👑</span>
-            </div>
-          )}
-          {reg.payment_screenshot_url && (
-            <div className="flex justify-between items-center">
-              <span className="text-slate-400">Payment</span>
-              <a
-                href={reg.payment_screenshot_url}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-sky-400 hover:underline text-[11px]"
-              >
-                View Screenshot
-              </a>
             </div>
           )}
         </div>
@@ -627,16 +617,17 @@ function AlreadyRegisteredPanel({ tournament, reg: initialReg, profile, onUpdate
 // ─── Registration Form ──────────────────────────────────────────────────────────────────────────────────
 function RegistrationForm({ tournament, onRegistered }) {
   const { profile } = usePlayer()
+  // FIX: UID lives in game_profiles.game_uid, exposed via GameContext as gameProfile.game_uid
+  const { gameProfile } = useGame()
   const slots = teammateCount(tournament.team_size)
   const [teamName, setTeamName] = React.useState('')
   const [mates, setMates] = React.useState(['', '', ''])
-  const [payProof, setPayProof] = React.useState(null)
-  const [uploading, setUploading] = React.useState(false)
   const [submitting, setSubmitting] = React.useState(false)
   const [err, setErr] = React.useState('')
   const [ok, setOk] = React.useState(false)
 
-  const hostUid = profile?.ff_uid || ''
+  // Correctly read UID from gameProfile (game_profiles table), not from profile (players table)
+  const hostUid = gameProfile?.game_uid ? String(gameProfile.game_uid).trim() : ''
   const entryFee = Number(tournament.entry_fee) || 0
   const hasFee = entryFee > 0
 
@@ -644,7 +635,7 @@ function RegistrationForm({ tournament, onRegistered }) {
     e.preventDefault()
     setErr('')
     if (!profile) return setErr('Please log in first.')
-    if (!hostUid) return setErr('Your FF UID is missing. Update your profile first.')
+    if (!hostUid) return setErr('Your game UID is missing. Please complete your game profile first.')
     if (slots > 0 && !teamName.trim()) return setErr('Enter your team name.')
 
     const filledMates = mates.slice(0, slots).map(m => m.trim()).filter(Boolean)
@@ -653,12 +644,12 @@ function RegistrationForm({ tournament, onRegistered }) {
       const uid = mates[i].trim()
       if (!uid) continue
       const { data: p } = await supabasePlayer
-        .from('players')
-        .select('full_name, is_verified')
-        .eq('ff_uid', uid)
+        .from('game_profiles')
+        .select('in_game_name, status')
+        .eq('game_uid', uid)
         .single()
       if (!p) return setErr(`❌ Teammate ${i + 1}: No player found with UID "${uid}". Only registered app users can be added.`)
-      if (!p.is_verified) return setErr(`❌ Teammate ${i + 1}: Player "${p.full_name}" is not approved by admin yet.`)
+      if (p.status !== 'verified') return setErr(`❌ Teammate ${i + 1}: Player "${p.in_game_name}" is not verified yet.`)
     }
 
     if (filledMates.includes(hostUid)) return setErr('❌ Your UID cannot also be a teammate UID.')
@@ -675,20 +666,6 @@ function RegistrationForm({ tournament, onRegistered }) {
     }
 
     setSubmitting(true)
-    let screenshotUrl = null
-
-    if (hasFee && payProof) {
-      setUploading(true)
-      const ext = payProof.name.split('.').pop()
-      const filePath = `payments/${profile.id}_${Date.now()}.${ext}`
-      const { error: upErr } = await supabasePlayer.storage
-        .from('payment-proofs')
-        .upload(filePath, payProof, { upsert: true })
-      setUploading(false)
-      if (upErr) { setErr('❌ Upload failed: ' + upErr.message); setSubmitting(false); return }
-      const { data: urlData } = supabasePlayer.storage.from('payment-proofs').getPublicUrl(filePath)
-      screenshotUrl = urlData?.publicUrl || null
-    }
 
     const t1 = slots >= 1 ? mates[0].trim() || null : null
     const t2 = slots >= 2 ? mates[1].trim() || null : null
@@ -699,13 +676,12 @@ function RegistrationForm({ tournament, onRegistered }) {
       .insert({
         tournament_id: tournament.id,
         player_id: profile.id,
-        team_name: slots > 0 ? teamName.trim() : (profile.full_name || hostUid),
+        team_name: slots > 0 ? teamName.trim() : (gameProfile?.in_game_name || hostUid),
         host_uid: hostUid,
         host_player_id: profile.id,
         teammate_uid_1: t1,
         teammate_uid_2: t2,
         teammate_uid_3: t3,
-        payment_screenshot_url: screenshotUrl,
         status: hasFee ? 'pending' : 'confirmed',
       })
 
@@ -721,7 +697,7 @@ function RegistrationForm({ tournament, onRegistered }) {
         <span className="text-2xl">✅</span>
         <p className="text-sm font-semibold text-emerald-400">Registered successfully!</p>
         <p className="text-xs text-slate-400">
-          {hasFee ? 'Your payment is under review. You will be confirmed soon.' : 'You are confirmed!'}
+          {hasFee ? 'Your registration is pending payment confirmation.' : 'You are confirmed!'}
         </p>
       </div>
     )
@@ -731,9 +707,18 @@ function RegistrationForm({ tournament, onRegistered }) {
     <form onSubmit={handleSubmit} className="card space-y-4">
       <p className="text-xs font-semibold text-slate-300">Register for this tournament</p>
 
+      {/* UID auto-filled from game profile */}
       <div className="space-y-1">
-        <label className="label">Your FF UID (auto-filled)</label>
-        <input type="text" className="input bg-slate-900" value={hostUid} readOnly />
+        <label className="label">Your Game UID (auto-filled)</label>
+        <input
+          type="text"
+          className="input bg-slate-900 text-slate-300 cursor-not-allowed"
+          value={hostUid || 'Loading…'}
+          readOnly
+        />
+        {gameProfile?.in_game_name && (
+          <p className="text-[11px] text-emerald-400 pl-1">✅ {gameProfile.in_game_name}</p>
+        )}
       </div>
 
       {slots > 0 && (
@@ -753,7 +738,7 @@ function RegistrationForm({ tournament, onRegistered }) {
       {slots > 0 && (
         <div className="space-y-2">
           <label className="label">Teammate UIDs</label>
-          <p className="text-[11px] text-amber-300">💡 Only players registered and approved on this app can be added as teammates.</p>
+          <p className="text-[11px] text-amber-300">💡 Only players registered and verified on this app can be added as teammates.</p>
           {Array.from({ length: slots }).map((_, i) => (
             <TeammateInput
               key={i}
@@ -771,41 +756,24 @@ function RegistrationForm({ tournament, onRegistered }) {
       )}
 
       {hasFee && (
-        <div className="space-y-3">
-          <div className="rounded-lg bg-slate-900/80 px-3 py-3 text-xs space-y-1.5">
-            <p className="font-semibold text-slate-200">Entry Fee: ₹{entryFee}</p>
-            {tournament.upi_id && (
-              <p className="text-slate-400">
-                UPI ID: <span className="font-mono text-slate-100 select-all">{tournament.upi_id}</span>
-              </p>
-            )}
-            {tournament.upi_qr_url && (
-              <img src={tournament.upi_qr_url} alt="UPI QR" className="mt-2 w-32 h-32 rounded" />
-            )}
-            <p className="text-amber-400 text-[11px]">⚠️ Pay the entry fee and upload the screenshot below.</p>
-          </div>
-          <div className="space-y-1">
-            <label className="label">Upload Payment Screenshot</label>
-            <input
-              type="file"
-              accept="image/*"
-              className="input text-xs py-1.5"
-              onChange={e => setPayProof(e.target.files?.[0] || null)}
-            />
-          </div>
-
-          {/* ── Payment gateway placeholder — will be replaced when new provider is integrated ── */}
-          <div className="rounded-lg border border-dashed border-slate-700 bg-slate-900/40 px-3 py-3 text-center space-y-1">
-            <p className="text-[11px] text-slate-500 font-semibold uppercase tracking-wide">Online Payment</p>
-            <p className="text-[11px] text-slate-600">Coming soon — a payment gateway will be available here.</p>
-          </div>
+        <div className="rounded-lg bg-slate-900/80 px-3 py-3 text-xs space-y-1.5">
+          <p className="font-semibold text-slate-200">Entry Fee: ₹{entryFee}</p>
+          {tournament.upi_id && (
+            <p className="text-slate-400">
+              UPI ID: <span className="font-mono text-slate-100 select-all">{tournament.upi_id}</span>
+            </p>
+          )}
+          {tournament.upi_qr_url && (
+            <img src={tournament.upi_qr_url} alt="UPI QR" className="mt-2 w-32 h-32 rounded" />
+          )}
+          <p className="text-amber-400 text-[11px]">⚠️ Pay the entry fee via UPI. Payment verification coming soon.</p>
         </div>
       )}
 
       {err && <p className="text-[11px] text-red-400">{err}</p>}
 
-      <button type="submit" className="btn-primary w-full" disabled={submitting || uploading}>
-        {uploading ? 'Uploading…' : submitting ? 'Registering…' : hasFee ? `Pay ₹${entryFee} & Register` : 'Register'}
+      <button type="submit" className="btn-primary w-full" disabled={submitting || !hostUid}>
+        {submitting ? 'Registering…' : hasFee ? `Register & Pay ₹${entryFee}` : 'Register'}
       </button>
     </form>
   )
@@ -815,8 +783,8 @@ function RegistrationForm({ tournament, onRegistered }) {
 
 export default function TournamentDetails() {
   const { id } = useParams()
-  // Use both user (auth) and profile (DB row) — user is available faster than profile
   const { user, profile, loading: authLoading } = usePlayer()
+  const { gameProfile } = useGame()
   const [tournament, setTournament] = React.useState(null)
   const [myReg, setMyReg] = React.useState(undefined)
   const [allRegs, setAllRegs] = React.useState([])
@@ -879,9 +847,6 @@ export default function TournamentDetails() {
   const regOpen = tournament.registration_status === 'open'
   const regClosed = tournament.registration_status === 'closed'
   const isRegistered = !!myReg
-  // FIX: use `user` (Supabase auth) instead of `profile` (DB row) to determine login state.
-  // `profile` can be null for a brief moment after login while the DB row is being fetched,
-  // which caused a logged-in user to briefly see the "Log In" button.
   const notLoggedIn = !user
 
   function renderRightPanel() {
@@ -901,7 +866,7 @@ export default function TournamentDetails() {
         <AlreadyRegisteredPanel
           tournament={tournament}
           reg={myReg}
-          profile={profile}
+          gameProfile={gameProfile}
           onUpdated={loadData}
         />
       )
