@@ -25,7 +25,7 @@ export function PlayerProvider({ children }) {
     }
 
     _fetchLock = (async () => {
-      // Always try SELECT first
+      // 1. Try to fetch the existing row first
       const { data: existing } = await supabasePlayer
         .from('players')
         .select(SELECT_COLS)
@@ -34,26 +34,21 @@ export function PlayerProvider({ children }) {
 
       if (existing) return existing
 
-      // Row doesn't exist yet — insert it.
-      // ignoreDuplicates: true means if the row already exists (race condition),
-      // it does nothing and we fall through to the fallback fetch below.
-      const { data: upserted, error } = await supabasePlayer
+      // 2. Row doesn't exist — INSERT a new one
+      const { data: inserted, error: insertError } = await supabasePlayer
         .from('players')
-        .upsert(
-          {
-            auth_id: u.id,
-            email: u.email,
-            full_name: '',
-            status: 'pending',
-            profile_setup: false,
-          },
-          { onConflict: 'auth_id', ignoreDuplicates: true }
-        )
+        .insert({
+          auth_id: u.id,
+          email: u.email,
+          full_name: '',
+          status: 'pending',
+          profile_setup: false,
+        })
         .select(SELECT_COLS)
         .maybeSingle()
 
-      if (error || !upserted) {
-        // Row exists from a concurrent call — just fetch it
+      if (insertError) {
+        // Concurrent insert from another tab — just fetch the row
         const { data: fallback } = await supabasePlayer
           .from('players')
           .select(SELECT_COLS)
@@ -62,7 +57,7 @@ export function PlayerProvider({ children }) {
         return fallback ?? null
       }
 
-      return upserted
+      return inserted ?? null
     })()
 
     try {
