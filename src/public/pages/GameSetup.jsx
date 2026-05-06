@@ -2,33 +2,25 @@ import React from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { supabasePlayer } from '../../lib/supabaseClient'
 import { usePlayer } from '../../lib/PlayerContext'
-
-const GAME_META = {
-  free_fire: { label: 'Free Fire', uidLabel: 'Free Fire UID', ignLabel: 'In-Game Name (IGN)', uidHint: 'Your numeric Free Fire UID', ignHint: 'Your in-game nickname' },
-  bgmi:      { label: 'BGMI',      uidLabel: 'BGMI UID',       ignLabel: 'In-Game Name (IGN)', uidHint: 'Your numeric BGMI UID',       ignHint: 'Your in-game nickname' },
-}
+import { useGame } from '../../lib/GameContext'
 
 export function GameSetup() {
   const { gameId } = useParams()
-  const { profile, fetchGameProfile } = usePlayer()
+  const { profile } = usePlayer()
+  const { game, gameProfile, gpLoading, refreshGameProfile } = useGame()
   const navigate = useNavigate()
-
-  const meta = GAME_META[gameId] || { label: gameId, uidLabel: 'Game UID', ignLabel: 'In-Game Name', uidHint: '', ignHint: '' }
 
   const [uid, setUid] = React.useState('')
   const [ign, setIgn] = React.useState('')
   const [saving, setSaving] = React.useState(false)
   const [error, setError] = React.useState(null)
-  const [checking, setChecking] = React.useState(true)
 
-  // Check if game profile already exists — if so, skip setup
+  // If game profile already exists, go straight to tournaments
   React.useEffect(() => {
-    if (!profile?.id) return
-    fetchGameProfile(profile.id, gameId).then(gp => {
-      if (gp) navigate(`/${gameId}/tournaments`, { replace: true })
-      else setChecking(false)
-    })
-  }, [profile?.id, gameId])
+    if (!gpLoading && gameProfile) {
+      navigate(`/${gameId}/tournaments`, { replace: true })
+    }
+  }, [gpLoading, gameProfile, gameId, navigate])
 
   const handleSubmit = async (e) => {
     e.preventDefault()
@@ -37,12 +29,11 @@ export function GameSetup() {
     const gameUid = uid.trim()
     const inGameName = ign.trim()
 
-    if (!gameUid) { setError(`${meta.uidLabel} is required.`); return }
-    if (!inGameName) { setError(`${meta.ignLabel} is required.`); return }
+    if (!gameUid) { setError(`${game?.name ?? 'Game'} UID is required.`); return }
+    if (!inGameName) { setError('In-Game Name is required.'); return }
 
     setSaving(true)
 
-    // Upsert game profile (insert or update by player_id + game_id)
     const { error: err } = await supabasePlayer
       .from('game_profiles')
       .upsert(
@@ -52,10 +43,13 @@ export function GameSetup() {
 
     if (err) { setError(err.message); setSaving(false); return }
 
+    // Refresh context so the GameContext guard lifts and allows navigation
+    await refreshGameProfile()
     navigate(`/${gameId}/tournaments`, { replace: true })
   }
 
-  if (checking) {
+  // Still loading — spinner (GameContext handles its own loading)
+  if (gpLoading) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-slate-950">
         <span className="h-8 w-8 rounded-full border-2 border-sky-500 border-t-transparent animate-spin" />
@@ -71,8 +65,8 @@ export function GameSetup() {
           <span className="text-2xl font-black text-slate-950">T</span>
         </div>
         <div className="text-center">
-          <h1 className="text-xl font-bold text-white">Set up {meta.label}</h1>
-          <p className="mt-1 text-sm text-slate-400">Link your {meta.label} account to Tournvia</p>
+          <h1 className="text-xl font-bold text-white">Set up {game?.name}</h1>
+          <p className="mt-1 text-sm text-slate-400">Link your {game?.name} account to Tournvia</p>
         </div>
       </div>
 
@@ -89,7 +83,7 @@ export function GameSetup() {
 
       {/* Card */}
       <form onSubmit={handleSubmit} className="w-full max-w-sm rounded-2xl border border-slate-800 bg-slate-900/80 p-8 shadow-2xl backdrop-blur">
-        <p className="mb-6 text-sm text-slate-400">Your {meta.label} details for tournament registrations.</p>
+        <p className="mb-6 text-sm text-slate-400">Your {game?.name} details for tournament registrations.</p>
 
         {error && (
           <div className="mb-4 rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-300">
@@ -100,14 +94,14 @@ export function GameSetup() {
         <div className="space-y-4">
           <div>
             <label className="mb-1.5 block text-xs font-medium text-slate-300" htmlFor="ign">
-              {meta.ignLabel} <span className="text-red-400">*</span>
+              In-Game Name (IGN) <span className="text-red-400">*</span>
             </label>
             <input
               id="ign"
               type="text"
               value={ign}
               onChange={e => setIgn(e.target.value)}
-              placeholder={meta.ignHint}
+              placeholder="Your in-game nickname"
               maxLength={32}
               className="w-full rounded-xl border border-slate-700 bg-slate-800 px-4 py-2.5 text-sm text-white placeholder-slate-500 outline-none transition focus:border-sky-500 focus:ring-1 focus:ring-sky-500"
             />
@@ -115,18 +109,18 @@ export function GameSetup() {
 
           <div>
             <label className="mb-1.5 block text-xs font-medium text-slate-300" htmlFor="uid">
-              {meta.uidLabel} <span className="text-red-400">*</span>
+              {game?.name} UID <span className="text-red-400">*</span>
             </label>
             <input
               id="uid"
               type="text"
               value={uid}
               onChange={e => setUid(e.target.value.replace(/\D/g, ''))}
-              placeholder={meta.uidHint}
+              placeholder="Your numeric UID"
               maxLength={20}
               className="w-full rounded-xl border border-slate-700 bg-slate-800 px-4 py-2.5 text-sm text-white placeholder-slate-500 outline-none transition focus:border-sky-500 focus:ring-1 focus:ring-sky-500"
             />
-            <p className="mt-1 text-xs text-slate-500">Numbers only — find it in your {meta.label} profile</p>
+            <p className="mt-1 text-xs text-slate-500">Numbers only — find it in your {game?.name} profile</p>
           </div>
         </div>
 
@@ -137,7 +131,7 @@ export function GameSetup() {
         >
           {saving ? (
             <><span className="h-4 w-4 rounded-full border-2 border-slate-950 border-t-transparent animate-spin" /> Saving…</>
-          ) : `Enter ${meta.label} →`}
+          ) : `Enter ${game?.name} →`}
         </button>
 
         <button
