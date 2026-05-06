@@ -3,56 +3,85 @@ import { supabasePlayer } from './supabaseClient'
 
 const PlayerContext = React.createContext(null)
 
+// Module-level lock — prevents concurrent fetchOrCreate calls for the same auth_id
+let _fetchLock = null
+
 export function PlayerProvider({ children }) {
   const [user, setUser] = React.useState(undefined)
   const [profile, setProfile] = React.useState(undefined)
-  // Controls the setup modal — can be opened by badge click too
   const [setupModalOpen, setSetupModalOpen] = React.useState(false)
 
   async function fetchOrCreateProfile(u) {
     if (!u) { setProfile(null); return }
 
-    const { data: existing } = await supabasePlayer
-      .from('players')
-      .select('id, auth_id, full_name, email, phone, ff_uid, status, is_verified, rejection_reason, created_at, profile_setup')
-      .eq('auth_id', u.id)
-      .maybeSingle()
-
-    if (existing) {
-      setProfile(existing)
-      // Auto-open modal if setup not done
-      if (!existing.profile_setup) setSetupModalOpen(true)
+    // If a fetch is already in-flight for this user, wait for it instead of firing a second one
+    if (_fetchLock) {
+      const result = await _fetchLock
+      if (result) {
+        setProfile(result)
+        if (!result.profile_setup) setSetupModalOpen(true)
+      }
       return
     }
 
-    // First ever login — insert bare row
-    const { data: created, error } = await supabasePlayer
-      .from('players')
-      .insert({
-        auth_id: u.id,
-        email: u.email,
-        full_name: '',
-        status: 'pending',
-        profile_setup: false,
-      })
-      .select('id, auth_id, full_name, email, phone, ff_uid, status, is_verified, rejection_reason, created_at, profile_setup')
-      .single()
+    _fetchLock = (async () => {
+      const SELECT_COLS = 'id, auth_id, full_name, email, phone, ff_uid, status, is_verified, rejection_reason, created_at, profile_setup'
 
-    if (error) {
-      const { data: retry } = await supabasePlayer
+      const { data: existing } = await supabasePlayer
         .from('players')
-        .select('id, auth_id, full_name, email, phone, ff_uid, status, is_verified, rejection_reason, created_at, profile_setup')
+        .select(SELECT_COLS)
         .eq('auth_id', u.id)
         .maybeSingle()
-      setProfile(retry ?? null)
-      if (retry && !retry.profile_setup) setSetupModalOpen(true)
-    } else {
-      setProfile(created)
-      setSetupModalOpen(true) // new player — open modal immediately
+
+      if (existing) return existing
+
+      // Use upsert with onConflict so concurrent calls never produce two rows.
+      // The UNIQUE constraint on auth_id means the second call just returns the existing row.
+      const { data: upserted, error } = await supabasePlayer
+        .from('players')
+        .upsert(
+          {
+            auth_id: u.id,
+            email: u.email,
+            full_name: '',
+            status: 'pending',
+            profile_setup: false,
+          },
+          { onConflict: 'auth_id', ignoreDuplicates: false }
+        )
+        .select(SELECT_COLS)
+        .maybeSingle()
+
+      if (error) {
+        // Fallback: row likely exists from a concurrent call — just fetch it
+        const { data: fallback } = await supabasePlayer
+          .from('players')
+          .select(SELECT_COLS)
+          .eq('auth_id', u.id)
+          .maybeSingle()
+        return fallback ?? null
+      }
+
+      return upserted ?? null
+    })()
+
+    try {
+      const result = await _fetchLock
+      if (result) {
+        setProfile(result)
+        const isNew = !result.profile_setup
+        if (isNew) setSetupModalOpen(true)
+      } else {
+        setProfile(null)
+      }
+    } finally {
+      _fetchLock = null
     }
   }
 
   React.useEffect(() => {
+    // getUser() + onAuthStateChange both fire on mount — only process the first one.
+    // We use the lock above to coalesce them safely.
     supabasePlayer.auth.getUser().then(({ data }) => {
       const u = data?.user ?? null
       setUser(u)
