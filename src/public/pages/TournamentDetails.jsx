@@ -413,7 +413,7 @@ function RoomCodeCard({ tournamentId }) {
   )
 }
 
-// ─── Already Registered Panel ──────────────────────────────────────────────────────
+// ─── Already Registered Panel ──────────────────────────────────────────────────
 
 function AlreadyRegisteredPanel({ tournament, reg: initialReg, profile, onUpdated }) {
   const slots = teammateCount(tournament.team_size)
@@ -626,7 +626,6 @@ function AlreadyRegisteredPanel({ tournament, reg: initialReg, profile, onUpdate
 
 // ─── Registration Form ──────────────────────────────────────────────────────────────────────────────────
 function RegistrationForm({ tournament, onRegistered }) {
-  // FIX: use correct context key 'profile' (not 'player')
   const { profile } = usePlayer()
   const slots = teammateCount(tournament.team_size)
   const [teamName, setTeamName] = React.useState('')
@@ -816,8 +815,8 @@ function RegistrationForm({ tournament, onRegistered }) {
 
 export default function TournamentDetails() {
   const { id } = useParams()
-  // FIX: destructure correct context keys — 'profile' and 'loading' (not 'player' and 'authLoading')
-  const { profile, loading: authLoading } = usePlayer()
+  // Use both user (auth) and profile (DB row) — user is available faster than profile
+  const { user, profile, loading: authLoading } = usePlayer()
   const [tournament, setTournament] = React.useState(null)
   const [myReg, setMyReg] = React.useState(undefined)
   const [allRegs, setAllRegs] = React.useState([])
@@ -880,7 +879,10 @@ export default function TournamentDetails() {
   const regOpen = tournament.registration_status === 'open'
   const regClosed = tournament.registration_status === 'closed'
   const isRegistered = !!myReg
-  const notLoggedIn = !profile
+  // FIX: use `user` (Supabase auth) instead of `profile` (DB row) to determine login state.
+  // `profile` can be null for a brief moment after login while the DB row is being fetched,
+  // which caused a logged-in user to briefly see the "Log In" button.
+  const notLoggedIn = !user
 
   function renderRightPanel() {
     if (isEnded) return <EndedTournamentPanel tournament={tournament} />
