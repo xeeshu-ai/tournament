@@ -64,54 +64,76 @@ export const GAMES = [
     minLevel: null,
     minRank: null,
   },
-]
+];
 
 export function getGame(gameId) {
-  return GAMES.find((g) => g.id === gameId) || null
+  return GAMES.find((g) => g.id === gameId) || null;
 }
 
-export const ACTIVE_GAMES = GAMES.filter((g) => g.status === 'active')
+export const ACTIVE_GAMES = GAMES.filter((g) => g.status === 'active');
 
 // BR maps per game
 export const MAPS = {
   free_fire: ['Bermuda', 'Bermuda Remastered', 'Kalahari', 'Purgatory', 'Alpine', 'NeXTerra'],
   bgmi: ['Erangel', 'Miramar', 'Sanhok', 'Vikendi', 'Livik'],
+};
+
+// Modes per game
+export const MODES_BY_GAME = {
+  free_fire: [
+    { id: 'br', label: 'Battle Royale' },
+    { id: 'cs', label: 'Clash Squad' },
+    { id: 'lw', label: 'Lone Wolf' },
+  ],
+  bgmi: [
+    { id: 'br', label: 'Battle Royale' },
+    { id: 'tdm', label: 'TDM' },
+  ],
+};
+
+export function getModesForGame(gameId) {
+  return MODES_BY_GAME[gameId] ?? MODES_BY_GAME.free_fire;
+}
+
+export function getMapsForGame(gameId) {
+  return MAPS[gameId] ?? MAPS.free_fire;
 }
 
 export const MODES = [
   { id: 'br', label: 'Battle Royale' },
   { id: 'cs', label: 'Clash Squad' },
   { id: 'lw', label: 'Lone Wolf' },
-]
+  { id: 'tdm', label: 'TDM' },
+];
+
+export function getModeLabel(gameId, modeId) {
+  const modes = getModesForGame(gameId);
+  return modes.find((m) => m.id === modeId)?.label || modeId?.toUpperCase() || '';
+}
 
 // Keep backward-compat aliases
-export const FF_MODES = MODES
-export const FF_MAPS = MAPS.free_fire
+export const FF_MODES = MODES_BY_GAME.free_fire;
+export const FF_MAPS = MAPS.free_fire;
 
 export const TEAM_SIZES = [
   { id: 1, label: 'Solo' },
   { id: 2, label: 'Duo' },
   { id: 4, label: 'Squad' },
-]
+];
 
 export const BR_SLOT_OPTIONS = {
   solo: [20, 32, 48],
   duo: [10, 16, 24],
   squad: [5, 8, 12],
-}
+};
 
 export const TOURNAMENT_TYPES = [
   { id: 'single', label: 'Single Match' },
   { id: 'long', label: 'Long Tournament' },
-]
-
-export function getModeLabel(t) {
-  if (!t?.mode) return ''
-  return MODES.find((m) => m.id === t.mode)?.label || t.mode
-}
+];
 
 export function calculateBrPoints(kills, position) {
-  const k = Number(kills) || 0
-  const p = Number(position) || 1
-  return ((k + 1) / p) * 100
+  const k = Number(kills) || 0;
+  const p = Number(position) || 1;
+  return ((k + 1) / p) * 100;
 }
