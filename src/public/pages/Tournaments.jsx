@@ -14,6 +14,9 @@ export function Tournaments() {
   const [tournaments, setTournaments] = React.useState([])
   const [myRegistrations, setMyRegistrations] = React.useState([])
 
+  // NEW: filter state for type
+  const [typeFilter, setTypeFilter] = React.useState('all') // 'all' | 'single' | 'long'
+
   // Load tournaments filtered by current game
   React.useEffect(() => {
     if (!game) return
@@ -66,6 +69,13 @@ export function Tournaments() {
   }, [profile?.id, gameProfile?.game_uid])
 
   if (!game) return null
+
+  // Derived filtered list
+  const filteredTournaments = tournaments.filter((t) => {
+    if (typeFilter === 'single') return t.type === 'single'
+    if (typeFilter === 'long') return t.type !== 'single'
+    return true
+  })
 
   return (
     <div className="space-y-6">
@@ -129,31 +139,86 @@ export function Tournaments() {
         )}
       </header>
 
+      {/* NEW: type filter bar */}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="inline-flex rounded-full bg-slate-900/60 p-1 text-[11px]">
+          {[
+            { id: 'all', label: 'All' },
+            { id: 'single', label: 'Single matches' },
+            { id: 'long', label: 'Long tournaments' },
+          ].map((opt) => {
+            const active = typeFilter === opt.id
+            return (
+              <button
+                key={opt.id}
+                type="button"
+                onClick={() => setTypeFilter(opt.id)}
+                className={
+                  'px-3 py-1.5 rounded-full font-semibold transition-colors ' +
+                  (active
+                    ? 'bg-sky-500 text-slate-950'
+                    : 'text-slate-400 hover:text-slate-100')
+                }
+              >
+                {opt.label}
+              </button>
+            )
+          })}
+        </div>
+
+        <p className="text-[11px] text-slate-500">
+          Showing{' '}
+          <span className="font-semibold text-slate-200">
+            {filteredTournaments.length}
+          </span>{' '}
+          of {tournaments.length} tournaments
+        </p>
+      </div>
+
       {loading ? (
         <div className="space-y-3">
           {[1, 2, 3].map((i) => (
             <div key={i} className="card h-24 animate-pulse bg-slate-800/60" />
           ))}
         </div>
-      ) : tournaments.length === 0 ? (
+      ) : filteredTournaments.length === 0 ? (
         <div className="card text-xs text-slate-300">
-          No {game.name} tournaments are live right now. Check back later.
+          {typeFilter === 'single'
+            ? `No single-match ${game.name} tournaments are live right now.`
+            : typeFilter === 'long'
+            ? `No long-format ${game.name} tournaments are live right now.`
+            : `No ${game.name} tournaments are live right now. Check back later.`}
         </div>
       ) : (
         <div className="grid gap-4 md:grid-cols-2">
-          {tournaments.map((t) => {
+          {filteredTournaments.map((t) => {
             const isRegistered = myRegistrations.includes(t.id)
             const modeLabel = getModeLabel(t)
             const formatLabel = t.format_label
             const modeLine = [modeLabel, formatLabel].filter(Boolean).join(' • ')
 
+            const typeMeta = TOURNAMENT_TYPES.find((x) => x.id === t.type) || null
+
             return (
-              <Link key={t.id} to={`/${game.id}/tournaments/${t.id}`} className="card group">
+              <Link
+                key={t.id}
+                to={`/${game.id}/tournaments/${t.id}`}
+                className="card group"
+              >
                 <div className="flex items-center justify-between gap-3">
                   <div className="flex flex-wrap items-center gap-2 text-[11px]">
-                    <span className="badge">
-                      {TOURNAMENT_TYPES.find((x) => x.id === t.type)?.label || 'Tournament'}
-                    </span>
+                    {typeMeta && (
+                      <span
+                        className={
+                          'rounded-full px-2 py-0.5 font-semibold uppercase tracking-[0.18em] ' +
+                          (t.type === 'single'
+                            ? 'bg-emerald-500/10 text-emerald-300 border border-emerald-500/40'
+                            : 'bg-violet-500/10 text-violet-300 border border-violet-500/40')
+                        }
+                      >
+                        {typeMeta.label}
+                      </span>
+                    )}
                     {modeLine && (
                       <span className="rounded-full bg-slate-900/80 px-2 py-0.5 text-[11px] text-slate-300">
                         {modeLine}
@@ -183,7 +248,7 @@ export function Tournaments() {
                 <p className="mt-1 text-xs text-slate-300 line-clamp-2">{t.prize_text}</p>
                 <div className="mt-3 flex flex-wrap items-center justify-between gap-3 text-[11px] text-slate-300">
                   <div className="flex flex-wrap items-center gap-3">
-                    <span>Entry: {Number(t.entry_fee) === 0 ? 'FREE' : `\u20b9${t.entry_fee}`}</span>
+                    <span>Entry: {Number(t.entry_fee) === 0 ? 'FREE' : `₹${t.entry_fee}`}</span>
                     <span>Slots: {t.filled_slots}/{t.max_slots}</span>
                     {game.minLevel && <span>Req: Level {game.minLevel}+</span>}
                   </div>
