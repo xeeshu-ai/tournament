@@ -176,7 +176,7 @@ function TournamentResults({ tournament }) {
   }
 
   return (
-    <section className="card space-y-4 border border-amber-700/40 bg-amber-500/5">
+    <section id="tournament-results" className="card space-y-4 border border-amber-700/40 bg-amber-500/5">
       <div className="flex items-center gap-2">
         <span className="text-lg">🏆</span>
         <h2 className="text-sm font-semibold text-amber-300">Final Results</h2>
@@ -355,7 +355,7 @@ function TournamentResults({ tournament }) {
 
 function EndedTournamentPanel({ tournament }) {
   return (
-    <div className="space-y-4">
+    <div className="space-y-4" id="tournament-ended">
       <div className="card border border-red-900/30 bg-red-500/5 text-center py-6 space-y-2">
         <span className="text-2xl">🏁</span>
         <p className="text-sm font-semibold text-red-400">This tournament has concluded.</p>
@@ -391,7 +391,7 @@ function RoomCodeCard({ tournamentId }) {
 
   if (roomCode === undefined) {
     return (
-      <div className="card space-y-2">
+      <div className="card space-y-2" id="tournament-room">
         <p className="text-xs font-semibold text-slate-300">🎮 Room Details <span className="text-[10px] text-amber-400 font-normal ml-1">(Host only)</span></p>
         <p className="text-[11px] text-slate-500 animate-pulse">Loading…</p>
       </div>
@@ -400,7 +400,7 @@ function RoomCodeCard({ tournamentId }) {
 
   if (!roomCode) {
     return (
-      <div className="card space-y-2">
+      <div className="card space-y-2" id="tournament-room">
         <p className="text-xs font-semibold text-slate-300">🎮 Room Details <span className="text-[10px] text-amber-400 font-normal ml-1">(Host only)</span></p>
         <p className="text-[11px] text-slate-500">Room details have not been added yet. Please check again later.</p>
       </div>
@@ -409,7 +409,7 @@ function RoomCodeCard({ tournamentId }) {
 
   if (!roomCode.is_revealed) {
     return (
-      <div className="card space-y-2 border border-amber-700/40 bg-amber-500/5">
+      <div className="card space-y-2 border border-amber-700/40 bg-amber-500/5" id="tournament-room">
         <p className="text-xs font-semibold text-amber-300">🎮 Room Details <span className="text-[10px] font-normal ml-1 text-amber-400">(Host only)</span></p>
         <p className="text-[11px] text-slate-400 leading-relaxed">
           The admin has added the room code, but it hasn’t been revealed to players yet.
@@ -420,7 +420,7 @@ function RoomCodeCard({ tournamentId }) {
   }
 
   return (
-    <div className="card space-y-3 border border-emerald-700/40 bg-emerald-500/5">
+    <div className="card space-y-3 border border-emerald-700/40 bg-emerald-500/5" id="tournament-room">
       <div className="flex items-center justify-between gap-3">
         <p className="text-xs font-semibold text-emerald-300">🎮 Room Details <span className="text-[10px] font-normal ml-1 text-amber-400">(Host only)</span></p>
         <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-600/20 text-emerald-300 font-semibold uppercase tracking-wide">Live</span>
@@ -559,7 +559,7 @@ function AlreadyRegisteredPanel({ tournament, reg, gameProfile, onUpdated }) {
 
   return (
     <div className="space-y-4">
-      <div className="card space-y-4">
+      <div className="card space-y-4" id="tournament-registration">
         <div className="flex items-start justify-between gap-3">
           <div>
             <p className="text-xs text-slate-500 uppercase tracking-wide">Your registration</p>
@@ -732,7 +732,7 @@ function RegisterPanel({ tournament, profile, gameProfile, allRegs, onRegistered
 
   if (done) {
     return (
-      <div className="card text-center py-10 space-y-3 border border-emerald-700/30 bg-emerald-500/5">
+      <div className="card text-center py-10 space-y-3 border border-emerald-700/30 bg-emerald-500/5" id="tournament-registration">
         <p className="text-sm font-semibold text-emerald-400">Registration submitted ✅</p>
         <p className="text-xs text-slate-400 max-w-sm mx-auto">
           {hasFee
@@ -744,7 +744,7 @@ function RegisterPanel({ tournament, profile, gameProfile, allRegs, onRegistered
   }
 
   return (
-    <form onSubmit={submit} className="card space-y-4">
+    <form onSubmit={submit} className="card space-y-4" id="tournament-registration">
       <div>
         <p className="text-xs text-slate-500 uppercase tracking-wide">Register team</p>
         <h3 className="text-base font-semibold text-slate-100 mt-1">Join this tournament</h3>
@@ -842,7 +842,7 @@ export default function TournamentDetails() {
     setTournament(t || null)
 
     if (t && profile) {
-      // FIX: query by host_player_id (actual column), not player_id
+      // query by host_player_id (actual column)
       const { data: reg } = await supabasePlayer
         .from('tournament_registrations')
         .select('*')
@@ -893,11 +893,26 @@ export default function TournamentDetails() {
   const isRegistered = !!myReg
   const notLoggedIn = !user
 
+  function scrollToSection(section) {
+    const el = document.getElementById(`tournament-${section}`)
+    if (el) {
+      el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    }
+  }
+
+  const navItems = [
+    { id: 'overview', label: 'Overview' },
+    { id: 'rules', label: 'Rules & points' },
+    { id: 'registration', label: isRegistered ? 'My registration' : 'Register' },
+    { id: 'room', label: 'Room code', show: !!(myReg && myReg.status === 'confirmed') },
+    { id: 'results', label: 'Results', show: isEnded },
+  ]
+
   function renderRightPanel() {
     if (isEnded) return <EndedTournamentPanel tournament={tournament} />
     if (notLoggedIn) {
       return (
-        <div className="card text-center space-y-3 py-8">
+        <div className="card text-center space-y-3 py-8" id="tournament-registration">
           <p className="text-xs text-slate-300">Log in to register for this tournament.</p>
           <a href="/login" className="btn-primary text-xs inline-block px-6">
             Log In
@@ -917,7 +932,7 @@ export default function TournamentDetails() {
     }
     if (regClosed) {
       return (
-        <div className="card text-center space-y-3 py-8 border border-slate-700 bg-slate-900/40">
+        <div className="card text-center space-y-3 py-8 border border-slate-700 bg-slate-900/40" id="tournament-registration">
           <p className="text-sm font-semibold text-slate-200">Registration closed</p>
           <p className="text-xs text-slate-400">This tournament is no longer accepting new entries.</p>
         </div>
@@ -925,7 +940,7 @@ export default function TournamentDetails() {
     }
     if (!profile) {
       return (
-        <div className="card text-center space-y-3 py-8 border border-amber-700/40 bg-amber-500/5">
+        <div className="card text-center space-y-3 py-8 border border-amber-700/40 bg-amber-500/5" id="tournament-registration">
           <p className="text-xs text-slate-300">Complete your player profile first to register.</p>
           <a href="/profile" className="btn-primary text-xs inline-block px-6">
             Open Profile
@@ -935,7 +950,7 @@ export default function TournamentDetails() {
     }
     if (!gameProfile?.game_uid) {
       return (
-        <div className="card text-center space-y-3 py-8 border border-amber-700/40 bg-amber-500/5">
+        <div className="card text-center space-y-3 py-8 border border-amber-700/40 bg-amber-500/5" id="tournament-registration">
           <p className="text-xs text-slate-300">Set up your game profile and verify your UID before registering.</p>
           <a href="/profile" className="btn-primary text-xs inline-block px-6">
             Complete Game Profile
@@ -945,7 +960,7 @@ export default function TournamentDetails() {
     }
     if (!regOpen) {
       return (
-        <div className="card text-center space-y-3 py-8 border border-slate-700 bg-slate-900/40">
+        <div className="card text-center space-y-3 py-8 border border-slate-700 bg-slate-900/40" id="tournament-registration">
           <p className="text-sm font-semibold text-slate-200">Registration not available</p>
           <p className="text-xs text-slate-400">Registration for this tournament is currently unavailable.</p>
         </div>
@@ -969,9 +984,25 @@ export default function TournamentDetails() {
 
   return (
     <div className="mx-auto max-w-6xl px-4 py-6 sm:px-6 lg:px-8 space-y-6">
+      {/* In-tournament navigation */}
+      <nav className="flex flex-wrap items-center gap-2 text-[11px]">
+        {navItems
+          .filter((item) => item.show === undefined || item.show)
+          .map((item) => (
+            <button
+              key={item.id}
+              type="button"
+              onClick={() => scrollToSection(item.id)}
+              className="rounded-full border border-slate-700 bg-slate-900/70 px-3 py-1 font-medium text-slate-300 hover:border-sky-500/60 hover:text-sky-300 transition-colors"
+            >
+              {item.label}
+            </button>
+          ))}
+      </nav>
+
       <div className="grid gap-6 lg:grid-cols-[1.25fr_0.95fr] items-start">
         <div className="space-y-6">
-          <section className="card space-y-5 overflow-hidden">
+          <section id="tournament-overview" className="card space-y-5 overflow-hidden">
             <div className="flex flex-wrap items-start justify-between gap-4">
               <div className="space-y-3">
                 <div className="flex flex-wrap gap-2">
@@ -1000,7 +1031,7 @@ export default function TournamentDetails() {
             </div>
 
             <div className="grid gap-4 md:grid-cols-2">
-              <div className="rounded-2xl bg-slate-900/50 ring-1 ring-white/10 p-4 space-y-3">
+              <div id="tournament-info" className="rounded-2xl bg-slate-900/50 ring-1 ring-white/10 p-4 space-y-3">
                 <h2 className="text-sm font-semibold text-slate-100">Tournament info</h2>
                 <dl className="space-y-2 text-xs">
                   <div className="flex items-start justify-between gap-3">
@@ -1018,7 +1049,7 @@ export default function TournamentDetails() {
                 </dl>
               </div>
 
-              <div className="rounded-2xl bg-slate-900/50 ring-1 ring-white/10 p-4 space-y-3">
+              <div id="tournament-rules" className="rounded-2xl bg-slate-900/50 ring-1 ring-white/10 p-4 space-y-3">
                 <h2 className="text-sm font-semibold text-slate-100">Rules & points</h2>
                 {tournament.points_table ? (
                   <pre className="text-[11px] leading-6 whitespace-pre-wrap font-sans text-slate-300">{tournament.points_table}</pre>
