@@ -6,7 +6,7 @@ export const GAMES = [
     shortName: 'FF',
     status: 'active',
     tagline: 'Battle Royale • Mobile',
-    accentColor: '#f97316',       // orange
+    accentColor: '#f97316',
     bgClass: 'from-orange-950/60 to-slate-950',
     borderClass: 'border-orange-500/30',
     badgeClass: 'bg-orange-500/10 text-orange-300 border-orange-500/30',
@@ -22,7 +22,7 @@ export const GAMES = [
     shortName: 'BGMI',
     status: 'active',
     tagline: 'Battle Royale • Mobile',
-    accentColor: '#3b82f6',       // blue
+    accentColor: '#3b82f6',
     bgClass: 'from-blue-950/60 to-slate-950',
     borderClass: 'border-blue-500/30',
     badgeClass: 'bg-blue-500/10 text-blue-300 border-blue-500/30',
@@ -75,7 +75,13 @@ export const ACTIVE_GAMES = GAMES.filter((g) => g.status === 'active');
 // BR maps per game
 export const MAPS = {
   free_fire: ['Bermuda', 'Bermuda Remastered', 'Kalahari', 'Purgatory', 'Alpine', 'NeXTerra'],
-  bgmi: ['Erangel', 'Miramar', 'Sanhok', 'Vikendi', 'Livik'],
+  // BGMI 100-player BR maps
+  bgmi: ['Erangel', 'Miramar', 'Rondo', 'Sanhok', 'Vikendi', 'Livik', 'Nusa', 'Deston'],
+};
+
+// TDM maps per game
+export const TDM_MAPS = {
+  bgmi: ['Hangar', 'Warehouse'],
 };
 
 // Modes per game
@@ -95,7 +101,8 @@ export function getModesForGame(gameId) {
   return MODES_BY_GAME[gameId] ?? MODES_BY_GAME.free_fire;
 }
 
-export function getMapsForGame(gameId) {
+export function getMapsForGame(gameId, mode) {
+  if (mode === 'tdm') return TDM_MAPS[gameId] ?? [];
   return MAPS[gameId] ?? MAPS.free_fire;
 }
 
@@ -121,10 +128,22 @@ export const TEAM_SIZES = [
   { id: 4, label: 'Squad' },
 ];
 
+// BR max slots per team size
+// BGMI: 100-player lobby → Solo=100, Duo=50, Squad=25
+// FF:   48-player lobby  → Solo=48,  Duo=24, Squad=12
 export const BR_SLOT_OPTIONS = {
-  solo: [20, 32, 48],
-  duo: [10, 16, 24],
-  squad: [5, 8, 12],
+  // Free Fire
+  ff_solo: [20, 32, 48],
+  ff_duo: [10, 16, 24],
+  ff_squad: [5, 8, 12],
+  // BGMI (fixed)
+  bgmi_solo: [100],
+  bgmi_duo: [50],
+  bgmi_squad: [25],
+  // Generic fallback
+  solo: [20, 32, 48, 100],
+  duo: [10, 16, 24, 50],
+  squad: [5, 8, 12, 25],
 };
 
 export const TOURNAMENT_TYPES = [
@@ -132,8 +151,23 @@ export const TOURNAMENT_TYPES = [
   { id: 'long', label: 'Long Tournament' },
 ];
 
-export function calculateBrPoints(kills, position) {
+/**
+ * BGMI BR scoring (standard tournament formula):
+ *   Position points:  #1=15, #2=12, #3=10, #4=8, #5=6, #6-#10=4, #11-#15=2, else 0
+ *   Kill points: 1 per kill
+ *
+ * Free Fire formula (legacy):
+ *   Points = ((kills + 1) / position) * 100
+ */
+export function calculateBrPoints(kills, position, gameId) {
   const k = Number(kills) || 0;
   const p = Number(position) || 1;
-  return ((k + 1) / p) * 100;
+
+  if (gameId === 'bgmi') {
+    const posTable = [15, 12, 10, 8, 6, 4, 4, 4, 4, 4, 2, 2, 2, 2, 2];
+    const posPts = posTable[p - 1] ?? 0;
+    return posPts + k;
+  }
+  // Free Fire
+  return Math.round(((k + 1) / p) * 100);
 }
