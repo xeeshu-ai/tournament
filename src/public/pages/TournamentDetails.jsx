@@ -160,7 +160,8 @@ function RegisteredTeamsList({ tournamentId, teamSize }) {
         {regs.map((reg, i) => {
           const isOpen = expanded === reg.id
           const statusColor = reg.status === 'confirmed' ? 'text-emerald-400' : 'text-amber-400'
-          const hostMember = reg.members.find(m => m.game_uid === reg.host_uid)
+          // slot 0 = host; fallback: first member or just use host_uid
+          const hostMember = reg.members.find(m => m.slot === 0) || reg.members[0]
           const hostName = hostMember?.in_game_name || reg.host_uid
 
           return (
