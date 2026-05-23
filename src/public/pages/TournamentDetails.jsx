@@ -5,7 +5,7 @@ import { usePlayer } from '../../lib/PlayerContext'
 import { useGame } from '../../lib/GameContext'
 import { getModeLabel } from '../../lib/constants'
 
-// ─── Teammate UID Validator ─────────────────────────────────────────────────
+// ─── Teammate UID Validator ────────────────────────────────────────────────────
 function useUidValidation(uid, hostUid) {
   const [state, setState] = React.useState({ status: 'idle', name: null })
   React.useEffect(() => {
@@ -14,7 +14,6 @@ function useUidValidation(uid, hostUid) {
     if (trimmed === hostUid) { setState({ status: 'invalid', name: null, msg: "That's your own UID" }); return }
     setState({ status: 'checking', name: null })
     const timer = setTimeout(async () => {
-      // game_profiles now has a public policy for status='verified', so this works for anyone
       const { data } = await supabasePlayer
         .from('game_profiles')
         .select('in_game_name, status')
@@ -33,7 +32,6 @@ function useUidValidation(uid, hostUid) {
   return state
 }
 
-// ─── Single validated teammate input ───────────────────────────────────────
 function TeammateInput({ index, value, onChange, hostUid }) {
   const v = useUidValidation(value, hostUid)
   return (
@@ -54,24 +52,19 @@ function TeammateInput({ index, value, onChange, hostUid }) {
   )
 }
 
-// ─── helpers ────────────────────────────────────────────────────────────────
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 function teammateCount(teamSize) {
   if (teamSize === null || teamSize === undefined) return 0
   const n = Number(teamSize)
   if (!isNaN(n)) {
     if (n <= 1) return 0
     if (n === 2) return 1
-    return 3
+    return n - 1   // team_size 4 → 3 teammates
   }
   const s = String(teamSize).toLowerCase()
   if (s.includes('duo') || s.includes('2v2')) return 1
   if (s.includes('squad') || s === '3' || s === '4') return 3
   return 0
-}
-
-function modeBadgeLabel(t) {
-  if (!t) return ''
-  return [getModeLabel(t), t.format_label].filter(Boolean).join(' • ')
 }
 
 function teamSizeLabel(teamSize) {
@@ -97,22 +90,22 @@ function fmtDate(iso) {
   } catch { return iso }
 }
 
-// ─── Registered Teams List ──────────────────────────────────────────────────
+// ─── Registered Teams List ────────────────────────────────────────────────────
 function RegisteredTeamsList({ tournamentId, teamSize }) {
   const [regs, setRegs] = React.useState(null)
   const [expanded, setExpanded] = React.useState(null)
-
   const needTeammates = teammateCount(teamSize) > 0
 
   React.useEffect(() => {
     async function load() {
-      const { data: regRows } = await supabasePlayer
+      const { data: regRows, error } = await supabasePlayer
         .from('tournament_registrations')
         .select('id, team_name, host_uid, status, created_at')
         .eq('tournament_id', tournamentId)
         .in('status', ['pending', 'confirmed'])
         .order('created_at', { ascending: true })
 
+      if (error) { console.error('RegisteredTeamsList error:', error); setRegs([]); return }
       if (!regRows?.length) { setRegs([]); return }
 
       const regIds = regRows.map(r => r.id)
@@ -128,13 +121,10 @@ function RegisteredTeamsList({ tournamentId, teamSize }) {
         membersByReg[m.registration_id].push(m)
       }
 
-      setRegs(regRows.map(r => ({
-        ...r,
-        members: membersByReg[r.id] || [],
-      })))
+      setRegs(regRows.map(r => ({ ...r, members: membersByReg[r.id] || [] })))
     }
     load()
-  }, [tournamentId, teamSize])
+  }, [tournamentId])
 
   if (regs === null) {
     return (
@@ -176,13 +166,16 @@ function RegisteredTeamsList({ tournamentId, teamSize }) {
           return (
             <div
               key={reg.id}
-              className={`rounded-xl ring-1 overflow-hidden transition-all ${reg.status === 'confirmed' ? 'ring-emerald-700/30 bg-emerald-500/5' : 'ring-slate-700/60 bg-slate-900/40'}`}
+              className={`rounded-xl ring-1 overflow-hidden transition-all ${
+                reg.status === 'confirmed'
+                  ? 'ring-emerald-700/30 bg-emerald-500/5'
+                  : 'ring-slate-700/60 bg-slate-900/40'
+              }`}
             >
               <button
                 type="button"
                 className="w-full flex items-center gap-3 px-3 py-2.5 text-left"
                 onClick={() => setExpanded(isOpen ? null : reg.id)}
-                aria-expanded={isOpen}
               >
                 <span className="text-[11px] text-slate-500 tabular-nums w-5 shrink-0">#{i + 1}</span>
                 <span className="flex-1 text-xs font-semibold text-slate-100 truncate">{reg.team_name}</span>
@@ -194,10 +187,8 @@ function RegisteredTeamsList({ tournamentId, teamSize }) {
                 <span className={`text-[10px] font-semibold uppercase tracking-wide shrink-0 ${statusColor}`}>
                   {reg.status}
                 </span>
-                <svg
-                  className={`w-3.5 h-3.5 text-slate-500 shrink-0 transition-transform ${isOpen ? 'rotate-180' : ''}`}
-                  viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
-                >
+                <svg className={`w-3.5 h-3.5 text-slate-500 shrink-0 transition-transform ${isOpen ? 'rotate-180' : ''}`}
+                  viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                   <path d="M6 9l6 6 6-6" />
                 </svg>
               </button>
@@ -205,24 +196,28 @@ function RegisteredTeamsList({ tournamentId, teamSize }) {
               {isOpen && (
                 <div className="px-3 pb-3 space-y-1.5 border-t border-white/5 pt-2">
                   {needTeammates ? (
-                    reg.members.length > 0 ? reg.members.map((m, mi) => (
-                      <div key={m.game_uid} className="flex items-center gap-2 text-[11px]">
-                        <span className="text-slate-500 w-4 shrink-0">
-                          {m.slot === 0 ? '👑' : `${mi}.`}
-                        </span>
-                        <span className="text-slate-200 font-medium flex-1 truncate">
-                          {m.in_game_name || m.game_uid}
-                        </span>
-                        <span className="font-mono text-slate-500 text-[10px] truncate">{m.game_uid}</span>
-                        {m.slot === 0 && (
-                          <span className="text-[9px] text-amber-400 font-semibold uppercase tracking-wide shrink-0">host</span>
-                        )}
-                      </div>
-                    )) : (
-                      <p className="text-[11px] text-slate-500">Player details not available.</p>
-                    )
+                    reg.members.length > 0
+                      ? reg.members
+                          .slice()
+                          .sort((a, b) => a.slot - b.slot)
+                          .map((m, mi) => (
+                            <div key={m.game_uid + mi} className="flex items-center gap-2 text-[11px]">
+                              <span className="text-slate-500 w-5 shrink-0 text-center">
+                                {m.slot === 0 ? '👑' : `${m.slot}.`}
+                              </span>
+                              <span className="text-slate-200 font-medium flex-1 truncate">
+                                {m.in_game_name || m.game_uid}
+                              </span>
+                              <span className="font-mono text-slate-500 text-[10px] truncate">{m.game_uid}</span>
+                              {m.slot === 0 && (
+                                <span className="text-[9px] text-amber-400 font-semibold uppercase tracking-wide shrink-0">host</span>
+                              )}
+                            </div>
+                          ))
+                      : (
+                        <p className="text-[11px] text-slate-500">Player details not available.</p>
+                      )
                   ) : (
-                    // Solo: show host UID/name only
                     <div className="flex items-center gap-2 text-[11px]">
                       <span className="text-slate-500">👑</span>
                       <span className="text-slate-200 font-medium flex-1 truncate">{hostName}</span>
@@ -239,7 +234,7 @@ function RegisteredTeamsList({ tournamentId, teamSize }) {
   )
 }
 
-// ─── Tournament Results Component ───────────────────────────────────────────
+// ─── Tournament Results ───────────────────────────────────────────────────────
 function TournamentResults({ tournament }) {
   const [brScores, setBrScores] = React.useState(null)
   const [loading, setLoading] = React.useState(false)
@@ -284,9 +279,7 @@ function TournamentResults({ tournament }) {
       <div className="flex items-center gap-2">
         <span className="text-lg">🏆</span>
         <h2 className="text-sm font-semibold text-amber-300">Final Results</h2>
-        <span className="ml-auto text-[10px] rounded-full bg-red-600/20 text-red-400 px-2 py-0.5 font-semibold uppercase tracking-wide">
-          Match Ended
-        </span>
+        <span className="ml-auto text-[10px] rounded-full bg-red-600/20 text-red-400 px-2 py-0.5 font-semibold uppercase tracking-wide">Match Ended</span>
       </div>
 
       {tournament.winner_text && (
@@ -309,19 +302,16 @@ function TournamentResults({ tournament }) {
             </thead>
             <tbody className="divide-y divide-slate-800">
               {tournament.single_br_results.map((row, i) => (
-                <tr key={row.team_name + i} className={`transition-colors ${i === 0 ? 'bg-amber-500/10' : ''}`}>
+                <tr key={row.team_name + i} className={i === 0 ? 'bg-amber-500/10' : ''}>
                   <td className="py-2 pr-2">
-                    {i === 0 ? <span className="text-amber-400 font-bold">🥇</span>
-                      : i === 1 ? <span className="text-slate-300 font-bold">🥈</span>
-                      : i === 2 ? <span className="text-orange-400 font-bold">🥉</span>
-                      : <span className="text-slate-500">{i + 1}</span>}
+                    {i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : <span className="text-slate-500">{i + 1}</span>}
                   </td>
                   <td className={`py-2 font-semibold ${i === 0 ? 'text-amber-300' : 'text-slate-100'}`}>
                     <div>{row.team_name}</div>
                     {row.player_names?.length > 0 && (
                       <div className="flex flex-wrap gap-1 mt-0.5">
                         {row.player_names.map((name, ni) => (
-                          <span key={ni} className="text-[10px] text-slate-400 font-normal">{name}</span>
+                          <span key={ni} className="text-[10px] text-slate-400">{name}</span>
                         ))}
                       </div>
                     )}
@@ -342,7 +332,7 @@ function TournamentResults({ tournament }) {
         <p className="text-xs text-slate-400">Results will be posted shortly.</p>
       )}
 
-      {isBR && !isSingleBR && brScores && brScores.length > 0 && (
+      {isBR && !isSingleBR && brScores?.length > 0 && (
         <div className="overflow-x-auto">
           <table className="w-full text-xs">
             <thead>
@@ -356,19 +346,16 @@ function TournamentResults({ tournament }) {
             </thead>
             <tbody className="divide-y divide-slate-800">
               {brScores.map((row, i) => (
-                <tr key={row.team_name} className={`transition-colors ${i === 0 ? 'bg-amber-500/10' : ''}`}>
+                <tr key={row.team_name} className={i === 0 ? 'bg-amber-500/10' : ''}>
                   <td className="py-2 pr-2">
-                    {i === 0 ? <span className="text-amber-400 font-bold">🥇</span>
-                      : i === 1 ? <span className="text-slate-300 font-bold">🥈</span>
-                      : i === 2 ? <span className="text-orange-400 font-bold">🥉</span>
-                      : <span className="text-slate-500">{i + 1}</span>}
+                    {i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : <span className="text-slate-500">{i + 1}</span>}
                   </td>
                   <td className={`py-2 font-semibold ${i === 0 ? 'text-amber-300' : 'text-slate-100'}`}>
                     <div>{row.team_name}</div>
                     {row.player_names?.length > 0 && (
                       <div className="flex flex-wrap gap-1 mt-0.5">
                         {row.player_names.map((name, ni) => (
-                          <span key={ni} className="text-[10px] text-slate-400 font-normal">{name}</span>
+                          <span key={ni} className="text-[10px] text-slate-400">{name}</span>
                         ))}
                       </div>
                     )}
@@ -390,50 +377,25 @@ function TournamentResults({ tournament }) {
       )}
 
       {isCSorLW && tournament.cs_lw_results && (() => {
-        const results = tournament.cs_lw_results
-        const matches = results?.matches || []
+        const matches = tournament.cs_lw_results?.matches || []
         if (!matches.length) return <p className="text-xs text-slate-400">Results will be posted shortly.</p>
         return (
           <div className="space-y-4">
             {matches.map((match, i) => (
               <div key={i} className="rounded-lg bg-slate-900/60 ring-1 ring-slate-700 overflow-hidden">
-                <div className="px-3 py-2 text-[10px] font-semibold uppercase tracking-wider text-slate-500 bg-slate-900/80 border-b border-slate-800">
-                  Match {i + 1}
-                </div>
+                <div className="px-3 py-2 text-[10px] font-semibold uppercase tracking-wider text-slate-500 bg-slate-900/80 border-b border-slate-800">Match {i + 1}</div>
                 <div className="grid grid-cols-[1fr_auto_1fr] gap-2 px-3 py-3 text-xs items-start">
                   <div className={`space-y-1 ${match.winner_team === match.teamA?.name ? 'text-emerald-300' : 'text-slate-200'}`}>
                     <p className="font-semibold">{match.teamA?.name}</p>
-                    <p className="text-[11px] text-slate-400">Rounds won: {match.teamA?.rounds_won ?? 0}</p>
-                    <p className="text-[11px] text-slate-400">Kills: {match.teamA?.kills ?? 0}</p>
-                    {Array.isArray(match.teamA?.players) && match.teamA.players.length > 0 && (
-                      <div className="pt-1 space-y-0.5">
-                        {match.teamA.players.map((p, idx) => (
-                          <div key={idx} className="flex items-center justify-between gap-2 text-[10px] text-slate-400">
-                            <span className="truncate">{p.name}</span>
-                            <span className="tabular-nums">K {p.kills ?? 0} • D {p.deaths ?? 0}</span>
-                          </div>
-                        ))}
-                      </div>
-                    )}
+                    <p className="text-[11px] text-slate-400">Rounds: {match.teamA?.rounds_won ?? 0} | Kills: {match.teamA?.kills ?? 0}</p>
                   </div>
-                  <div className="flex flex-col items-center justify-center gap-2 pt-1">
-                    <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">VS</span>
-                    <span className="text-[11px] text-amber-400 font-semibold">{match.winner_team ? `Winner: ${match.winner_team}` : '—'}</span>
+                  <div className="flex flex-col items-center gap-1 pt-1">
+                    <span className="text-[10px] font-semibold uppercase text-slate-500">VS</span>
+                    <span className="text-[11px] text-amber-400 font-semibold">{match.winner_team ? `W: ${match.winner_team}` : '—'}</span>
                   </div>
                   <div className={`space-y-1 text-right ${match.winner_team === match.teamB?.name ? 'text-emerald-300' : 'text-slate-200'}`}>
                     <p className="font-semibold">{match.teamB?.name}</p>
-                    <p className="text-[11px] text-slate-400">Rounds won: {match.teamB?.rounds_won ?? 0}</p>
-                    <p className="text-[11px] text-slate-400">Kills: {match.teamB?.kills ?? 0}</p>
-                    {Array.isArray(match.teamB?.players) && match.teamB.players.length > 0 && (
-                      <div className="pt-1 space-y-0.5">
-                        {match.teamB.players.map((p, idx) => (
-                          <div key={idx} className="flex items-center justify-between gap-2 text-[10px] text-slate-400">
-                            <span className="tabular-nums">K {p.kills ?? 0} • D {p.deaths ?? 0}</span>
-                            <span className="truncate">{p.name}</span>
-                          </div>
-                        ))}
-                      </div>
-                    )}
+                    <p className="text-[11px] text-slate-400">Rounds: {match.teamB?.rounds_won ?? 0} | Kills: {match.teamB?.kills ?? 0}</p>
                   </div>
                 </div>
               </div>
@@ -458,20 +420,16 @@ function EndedTournamentPanel({ tournament }) {
   )
 }
 
-// ─── Room Code Card ─────────────────────────────────────────────────────────
+// ─── Room Code Card ───────────────────────────────────────────────────────────
 function RoomCodeCard({ tournamentId }) {
   const [roomCode, setRoomCode] = React.useState(undefined)
-  const [shown, setShown] = React.useState(false)
 
   React.useEffect(() => {
     async function fetchRoom() {
       const { data } = await supabasePlayer
-        .from('room_codes')
-        .select('room_id, room_password, is_revealed')
-        .eq('tournament_id', tournamentId)
-        .maybeSingle()
+        .from('room_codes').select('room_id, room_password, is_revealed')
+        .eq('tournament_id', tournamentId).maybeSingle()
       setRoomCode(data || null)
-      if (!data?.is_revealed) setShown(false)
     }
     fetchRoom()
     const interval = setInterval(fetchRoom, 15_000)
@@ -486,35 +444,29 @@ function RoomCodeCard({ tournamentId }) {
       </div>
     )
   }
-
   if (!roomCode) {
     return (
       <div className="card space-y-2" id="tournament-room">
         <p className="text-xs font-semibold text-slate-300">🎮 Room Details <span className="text-[10px] text-amber-400 font-normal ml-1">(Host only)</span></p>
-        <p className="text-[11px] text-slate-500">Room details have not been added yet. Please check again later.</p>
+        <p className="text-[11px] text-slate-500">Room details not added yet. Check back later.</p>
       </div>
     )
   }
-
   if (!roomCode.is_revealed) {
     return (
       <div className="card space-y-2 border border-amber-700/40 bg-amber-500/5" id="tournament-room">
         <p className="text-xs font-semibold text-amber-300">🎮 Room Details <span className="text-[10px] font-normal ml-1 text-amber-400">(Host only)</span></p>
-        <p className="text-[11px] text-slate-400 leading-relaxed">
-          The admin has added the room code, but it hasn't been revealed to players yet.
-        </p>
-        <p className="text-[11px] text-slate-500">Keep this page open and refresh later.</p>
+        <p className="text-[11px] text-slate-400 leading-relaxed">Room code added but not yet revealed. Keep this page open and refresh later.</p>
       </div>
     )
   }
-
   return (
     <div className="card space-y-3 border border-emerald-700/40 bg-emerald-500/5" id="tournament-room">
       <div className="flex items-center justify-between gap-3">
         <p className="text-xs font-semibold text-emerald-300">🎮 Room Details <span className="text-[10px] font-normal ml-1 text-amber-400">(Host only)</span></p>
         <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-600/20 text-emerald-300 font-semibold uppercase tracking-wide">Live</span>
       </div>
-      <p className="text-[11px] text-slate-400">These room details are now visible. Share carefully with your teammates.</p>
+      <p className="text-[11px] text-slate-400">Share carefully with your teammates only.</p>
       <div className="rounded-xl bg-slate-950/50 ring-1 ring-white/10 p-3 space-y-3">
         <div className="flex items-center justify-between gap-3">
           <div>
@@ -531,30 +483,23 @@ function RoomCodeCard({ tournamentId }) {
           <button type="button" className="btn-secondary text-[11px] px-3 py-1.5" onClick={() => navigator.clipboard.writeText(roomCode.room_password || '')}>Copy</button>
         </div>
       </div>
-      <button type="button" className="btn-primary text-xs" onClick={() => setShown(v => !v)}>
-        {shown ? 'Hide from my screen' : 'Keep visible on my screen'}
-      </button>
-      {shown && <p className="text-[11px] text-emerald-300/90">Room details pinned on screen for quick access.</p>}
     </div>
   )
 }
 
-// ─── Already Registered Panel ───────────────────────────────────────────────
+// ─── Already Registered Panel ─────────────────────────────────────────────────
 function AlreadyRegisteredPanel({ tournament, reg, gameProfile, onUpdated }) {
   const isHost = gameProfile?.game_uid && reg.host_uid === gameProfile.game_uid
   const canEdit = reg.status !== 'confirmed'
   const teammateNeed = teammateCount(tournament.team_size)
 
-  // Load members from registration_members table
   const [members, setMembers] = React.useState([])
   React.useEffect(() => {
     async function loadMembers() {
       if (!reg.id) return
       const { data } = await supabasePlayer
-        .from('registration_members')
-        .select('slot, game_uid, in_game_name')
-        .eq('registration_id', reg.id)
-        .order('slot', { ascending: true })
+        .from('registration_members').select('slot, game_uid, in_game_name')
+        .eq('registration_id', reg.id).order('slot', { ascending: true })
       setMembers(data || [])
     }
     loadMembers()
@@ -583,34 +528,26 @@ function AlreadyRegisteredPanel({ tournament, reg, gameProfile, onUpdated }) {
     if (!isHost) return
     const cleanTeam = teamName.trim()
     if (!cleanTeam) return setSaveErr('Team name is required.')
-
     const cleanTeammates = editTeammates.map(v => v.trim())
     const dup = cleanTeammates.filter(Boolean).find((v, idx) => cleanTeammates.indexOf(v) !== idx)
     if (dup) return setSaveErr(`❌ Duplicate teammate UID: ${dup}`)
-    if (gameProfile?.game_uid && cleanTeammates.includes(gameProfile.game_uid)) {
+    if (gameProfile?.game_uid && cleanTeammates.includes(gameProfile.game_uid))
       return setSaveErr(`❌ You cannot enter your own UID in teammate fields.`)
-    }
 
     setSaving(true)
-
     for (let i = 0; i < cleanTeammates.length; i++) {
       const uid = cleanTeammates[i]
       if (!uid) { setSaveErr(`❌ Teammate ${i + 1} UID is required.`); setSaving(false); return }
       const { data: p } = await supabasePlayer
         .from('game_profiles').select('in_game_name, status').eq('game_uid', uid).maybeSingle()
-      if (!p) { setSaveErr(`❌ Teammate ${i + 1}: No player found with UID ${uid}`); setSaving(false); return }
-      if (p.status !== 'verified') { setSaveErr(`❌ Teammate ${i + 1}: Player "${p.in_game_name}" is not verified yet.`); setSaving(false); return }
+      if (!p) { setSaveErr(`❌ Teammate ${i + 1}: No player with UID ${uid}`); setSaving(false); return }
+      if (p.status !== 'verified') { setSaveErr(`❌ Teammate ${i + 1}: "${p.in_game_name}" not verified yet.`); setSaving(false); return }
     }
 
-    // Update team_name on registration
     const { error: regErr } = await supabasePlayer
-      .from('tournament_registrations')
-      .update({ team_name: cleanTeam })
-      .eq('id', reg.id)
+      .from('tournament_registrations').update({ team_name: cleanTeam }).eq('id', reg.id)
+    if (regErr) { setSaveErr(regErr.message || 'Failed to save.'); setSaving(false); return }
 
-    if (regErr) { setSaveErr(regErr.message || 'Failed to save changes.'); setSaving(false); return }
-
-    // Update registration_members (delete old teammates, insert new)
     await supabasePlayer.from('registration_members').delete()
       .eq('registration_id', reg.id).gt('slot', 0)
 
@@ -629,10 +566,8 @@ function AlreadyRegisteredPanel({ tournament, reg, gameProfile, onUpdated }) {
   }
 
   const statusColor = {
-    pending: 'text-amber-400',
-    confirmed: 'text-emerald-400',
-    rejected: 'text-red-400',
-    cancelled: 'text-slate-500'
+    pending: 'text-amber-400', confirmed: 'text-emerald-400',
+    rejected: 'text-red-400', cancelled: 'text-slate-500'
   }[reg.status] || 'text-slate-400'
 
   return (
@@ -643,21 +578,16 @@ function AlreadyRegisteredPanel({ tournament, reg, gameProfile, onUpdated }) {
             <p className="text-xs text-slate-500 uppercase tracking-wide">Your registration</p>
             <h3 className="text-base font-semibold text-slate-100 mt-1">{reg.team_name}</h3>
           </div>
-          <span className={`text-[11px] font-semibold uppercase tracking-wide ${statusColor}`}>
-            {reg.status}
-          </span>
+          <span className={`text-[11px] font-semibold uppercase tracking-wide ${statusColor}`}>{reg.status}</span>
         </div>
-
         <div className="space-y-2 text-xs text-slate-300">
-          {/* Host row */}
           <div className="flex items-center justify-between gap-3 rounded-lg bg-slate-900/50 px-3 py-2">
             <span className="text-slate-400">Host UID</span>
             <span className="font-mono text-slate-100">{reg.host_uid}</span>
           </div>
-          {/* Teammate rows from registration_members */}
           {teammates.map((m, idx) => (
             <div key={m.game_uid} className="flex items-center justify-between gap-3 rounded-lg bg-slate-900/40 px-3 py-2">
-              <span className="text-slate-400">Teammate {idx + 1} {m.in_game_name ? `(${m.in_game_name})` : ''}</span>
+              <span className="text-slate-400">Teammate {idx + 1}{m.in_game_name ? ` (${m.in_game_name})` : ''}</span>
               <span className="font-mono text-slate-100">{m.game_uid}</span>
             </div>
           ))}
@@ -665,18 +595,13 @@ function AlreadyRegisteredPanel({ tournament, reg, gameProfile, onUpdated }) {
             <p className="text-[11px] text-slate-500 px-1">No teammates added yet.</p>
           )}
         </div>
-
         {isHost && canEdit && (
           <div className="flex gap-2">
             <button type="button" className="btn-secondary text-xs" onClick={() => setEditing(v => !v)}>
               {editing ? 'Cancel edit' : 'Edit registration'}
             </button>
-            {!editing && reg.status !== 'confirmed' && (
-              <p className="text-[11px] text-slate-500 self-center">You can edit until admin confirms your slot.</p>
-            )}
           </div>
         )}
-
         {editing && (
           <form className="space-y-3 border-t border-white/10 pt-4" onSubmit={saveChanges}>
             <div>
@@ -685,14 +610,9 @@ function AlreadyRegisteredPanel({ tournament, reg, gameProfile, onUpdated }) {
             </div>
             <div className="space-y-2">
               {Array.from({ length: teammateNeed }).map((_, i) => (
-                <TeammateInput
-                  key={i} index={i}
+                <TeammateInput key={i} index={i}
                   value={editTeammates[i] || ''}
-                  onChange={(val) => {
-                    const copy = [...editTeammates]
-                    copy[i] = val
-                    setEditTeammates(copy)
-                  }}
+                  onChange={(val) => { const c = [...editTeammates]; c[i] = val; setEditTeammates(c) }}
                   hostUid={gameProfile?.game_uid || ''}
                 />
               ))}
@@ -704,28 +624,24 @@ function AlreadyRegisteredPanel({ tournament, reg, gameProfile, onUpdated }) {
           </form>
         )}
       </div>
-
       {reg.status === 'pending' && tournament.entry_fee > 0 && (
         <div className="card border border-amber-700/40 bg-amber-500/5 space-y-2">
           <p className="text-xs font-semibold text-amber-300">Payment under review</p>
-          <p className="text-[11px] text-slate-400 leading-relaxed">
-            Your payment has been recorded and is awaiting admin confirmation. Room details will appear here once your slot is confirmed.
-          </p>
+          <p className="text-[11px] text-slate-400 leading-relaxed">Your payment is awaiting admin confirmation. Room details will appear once your slot is confirmed.</p>
         </div>
       )}
-
       {reg.status === 'confirmed' && isHost && <RoomCodeCard tournamentId={tournament.id} />}
       {reg.status === 'confirmed' && !isHost && (
         <div className="card border border-slate-700 bg-slate-900/40 space-y-2">
           <p className="text-xs font-semibold text-slate-200">Room details</p>
-          <p className="text-[11px] text-slate-400">Only the host account can view room details. Please contact your team host.</p>
+          <p className="text-[11px] text-slate-400">Only the host account can view room details. Contact your team host.</p>
         </div>
       )}
     </div>
   )
 }
 
-// ─── Register Panel ─────────────────────────────────────────────────────────
+// ─── Register Panel ───────────────────────────────────────────────────────────
 function RegisterPanel({ tournament, profile, gameProfile, allRegs, onRegistered }) {
   const teammateNeed = teammateCount(tournament.team_size)
   const hasFee = Number(tournament.entry_fee) > 0
@@ -749,32 +665,29 @@ function RegisterPanel({ tournament, profile, gameProfile, allRegs, onRegistered
 
     const cleanTeammates = teammates.map(v => v.trim())
     if (teammateNeed > 0 && cleanTeammates.some(v => !v)) return setErr('All teammate UIDs are required.')
-
     const dup = cleanTeammates.find((v, idx) => cleanTeammates.indexOf(v) !== idx)
     if (dup) return setErr(`❌ Duplicate teammate UID: ${dup}`)
     if (cleanTeammates.includes(gameProfile.game_uid)) return setErr(`❌ You cannot enter your own UID as a teammate.`)
 
-    // Validate all teammate UIDs exist and are verified
     setSaving(true)
     for (let i = 0; i < cleanTeammates.length; i++) {
       const uid = cleanTeammates[i]
       const { data: p } = await supabasePlayer
         .from('game_profiles').select('in_game_name, status').eq('game_uid', uid).maybeSingle()
-      if (!p) { setErr(`❌ Teammate ${i + 1}: No player found with UID ${uid}`); setSaving(false); return }
-      if (p.status !== 'verified') { setErr(`❌ Teammate ${i + 1}: Player "${p.in_game_name}" is not verified yet.`); setSaving(false); return }
+      if (!p) { setErr(`❌ Teammate ${i + 1}: No player with UID ${uid}`); setSaving(false); return }
+      if (p.status !== 'verified') { setErr(`❌ Teammate ${i + 1}: "${p.in_game_name}" not verified yet.`); setSaving(false); return }
     }
 
-    // Check UID conflicts across all registrations
+    // UID conflict check
     const allUids = [gameProfile.game_uid, ...cleanTeammates].filter(Boolean)
     for (const reg of (allRegs || [])) {
       const { data: existingMembers } = await supabasePlayer
         .from('registration_members').select('game_uid').eq('registration_id', reg.id)
       const takenUids = (existingMembers || []).map(m => m.game_uid)
       const conflict = allUids.find(u => takenUids.includes(u))
-      if (conflict) { setErr(`❌ UID already registered in another team: ${conflict}`); setSaving(false); return }
+      if (conflict) { setErr(`❌ UID already registered: ${conflict}`); setSaving(false); return }
     }
 
-    // Insert registration
     const { data: newReg, error: regErr } = await supabasePlayer
       .from('tournament_registrations')
       .insert({
@@ -784,17 +697,15 @@ function RegisterPanel({ tournament, profile, gameProfile, allRegs, onRegistered
         status: 'pending',
         host_player_id: profile?.id || null,
       })
-      .select('id')
-      .single()
+      .select('id').single()
 
     if (regErr || !newReg) { setErr(regErr?.message || 'Registration failed.'); setSaving(false); return }
 
-    // Insert registration_members: slot 0 = host, slots 1..N = teammates
-    const hostProfile = await supabasePlayer
+    const { data: hostGP } = await supabasePlayer
       .from('game_profiles').select('in_game_name').eq('game_uid', gameProfile.game_uid).maybeSingle()
 
     const memberRows = [
-      { registration_id: newReg.id, slot: 0, game_uid: gameProfile.game_uid, in_game_name: hostProfile.data?.in_game_name || null, player_id: profile?.id || null },
+      { registration_id: newReg.id, slot: 0, game_uid: gameProfile.game_uid, in_game_name: hostGP?.in_game_name || null, player_id: profile?.id || null },
       ...await Promise.all(cleanTeammates.map(async (uid, i) => {
         const { data: p } = await supabasePlayer
           .from('game_profiles').select('in_game_name').eq('game_uid', uid).maybeSingle()
@@ -804,7 +715,6 @@ function RegisterPanel({ tournament, profile, gameProfile, allRegs, onRegistered
 
     const { error: membersErr } = await supabasePlayer.from('registration_members').insert(memberRows)
     if (membersErr) {
-      // Rollback registration if members insertion fails
       await supabasePlayer.from('tournament_registrations').delete().eq('id', newReg.id)
       setErr(membersErr.message || 'Failed to save team members.')
       setSaving(false)
@@ -822,7 +732,7 @@ function RegisterPanel({ tournament, profile, gameProfile, allRegs, onRegistered
         <span className="text-2xl">🎉</span>
         <p className="text-sm font-semibold text-emerald-400">You're registered!</p>
         <p className="text-xs text-slate-400">
-          {hasFee ? 'Your payment is under review. The admin will confirm your slot shortly.' : 'Your slot is pending admin confirmation.'}
+          {hasFee ? 'Your payment is under review. Admin will confirm your slot shortly.' : 'Pending admin confirmation.'}
         </p>
       </div>
     )
@@ -834,43 +744,29 @@ function RegisterPanel({ tournament, profile, gameProfile, allRegs, onRegistered
         <p className="text-xs text-slate-500 uppercase tracking-wide">Join Tournament</p>
         <h3 className="text-sm font-semibold text-slate-100 mt-0.5">Register your team</h3>
       </div>
-
       <form className="space-y-3" onSubmit={submit}>
         <div>
           <label className="label">Team / Player name</label>
           <input className="input" placeholder="Enter your team name" value={teamName} onChange={e => setTeamName(e.target.value)} />
         </div>
-
-        {/* Host UID (read-only, auto-filled) */}
         <div>
           <label className="label">Your UID (Host)</label>
           <input className="input opacity-60 cursor-not-allowed" readOnly value={gameProfile?.game_uid || 'No game profile found'} />
         </div>
-
         {Array.from({ length: teammateNeed }).map((_, i) => (
-          <TeammateInput
-            key={i} index={i}
+          <TeammateInput key={i} index={i}
             value={teammates[i] || ''}
-            onChange={(val) => {
-              const copy = [...teammates]
-              copy[i] = val
-              setTeammates(copy)
-            }}
+            onChange={(val) => { const c = [...teammates]; c[i] = val; setTeammates(c) }}
             hostUid={gameProfile?.game_uid || ''}
           />
         ))}
-
         {hasFee && (
           <div className="rounded-xl bg-amber-500/10 ring-1 ring-amber-700/40 px-3 py-3 space-y-1">
             <p className="text-xs font-semibold text-amber-300">Entry Fee: ₹{tournament.entry_fee}</p>
-            <p className="text-[11px] text-slate-400 leading-relaxed">
-              Submit your registration and then complete the payment. Your slot will be confirmed once the admin verifies payment.
-            </p>
+            <p className="text-[11px] text-slate-400 leading-relaxed">Submit registration then complete payment. Slot confirmed after admin verifies.</p>
           </div>
         )}
-
         {err && <p className="text-xs text-red-400">{err}</p>}
-
         <button disabled={saving || !gameProfile?.game_uid} className="btn-primary text-xs w-full" type="submit">
           {saving ? 'Registering…' : hasFee ? 'Register & Pay' : 'Register'}
         </button>
@@ -879,7 +775,7 @@ function RegisterPanel({ tournament, profile, gameProfile, allRegs, onRegistered
   )
 }
 
-// ─── Main TournamentDetails page ────────────────────────────────────────────
+// ─── Main TournamentDetails page ─────────────────────────────────────────────
 export default function TournamentDetails() {
   const { id } = useParams()
   const { profile, gameProfile, loading: playerLoading } = usePlayer()
@@ -906,7 +802,6 @@ export default function TournamentDetails() {
 
     setAllRegs(regs || [])
 
-    // Find my registration (by host_player_id or host_uid)
     if (gameProfile?.game_uid) {
       const mine = (regs || []).find(r =>
         r.host_uid === gameProfile.game_uid ||
@@ -943,38 +838,55 @@ export default function TournamentDetails() {
     )
   }
 
-  const isEnded = tournament.status === 'ended' || tournament.status === 'cancelled'
-  const isOpen = tournament.status === 'open' || tournament.status === 'upcoming'
-  const isFull = tournament.max_teams && allRegs.filter(r => r.status !== 'cancelled' && r.status !== 'rejected').length >= tournament.max_teams
-  const canRegister = isOpen && !isEnded && !myReg && gameProfile?.game_uid && !isFull
+  // ── Status logic using REAL column names ──
+  // tournament.status: 'active' | 'ended' | 'cancelled' etc
+  // tournament.registration_status: 'open' | 'closed' etc
+  const isArchived = tournament.is_archived === true
+  const isEnded = tournament.status === 'ended' || tournament.status === 'cancelled' || isArchived
+  const regOpen = tournament.registration_status === 'open'
+  const activeRegs = allRegs.filter(r => r.status !== 'cancelled' && r.status !== 'rejected')
+  const isFull = tournament.max_slots && activeRegs.length >= tournament.max_slots
+  const canRegister = !isEnded && regOpen && !myReg && gameProfile?.game_uid && !isFull
 
   return (
     <div className="space-y-4 pb-10">
+
       {/* ── Header card ── */}
       <div className="card space-y-3">
         <div className="flex items-start justify-between gap-3">
-          <h1 className="text-base font-bold text-slate-100 leading-snug flex-1">{tournament.name}</h1>
+          <h1 className="text-base font-bold text-slate-100 leading-snug flex-1">{tournament.title}</h1>
           <span className={`text-[10px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded-full shrink-0 ${
-            tournament.status === 'open' ? 'bg-emerald-600/20 text-emerald-400'
-            : tournament.status === 'upcoming' ? 'bg-sky-600/20 text-sky-400'
-            : tournament.status === 'ongoing' ? 'bg-amber-600/20 text-amber-400'
-            : 'bg-slate-700/40 text-slate-400'
+            tournament.status === 'active' ? 'bg-emerald-600/20 text-emerald-400'
+            : tournament.status === 'ended' ? 'bg-slate-700/40 text-slate-400'
+            : 'bg-amber-600/20 text-amber-400'
           }`}>
             {tournament.status}
           </span>
         </div>
 
-        {tournament.description && (
-          <p className="text-[11px] text-slate-400 leading-relaxed">{tournament.description}</p>
-        )}
+        {/* Mode / map badges */}
+        <div className="flex flex-wrap gap-1.5">
+          {tournament.mode_label && (
+            <span className="text-[10px] rounded-full bg-slate-800 text-slate-300 px-2 py-0.5 font-medium">{tournament.mode_label}</span>
+          )}
+          {tournament.format_label && (
+            <span className="text-[10px] rounded-full bg-slate-800 text-slate-300 px-2 py-0.5 font-medium">{tournament.format_label}</span>
+          )}
+          {tournament.map && (
+            <span className="text-[10px] rounded-full bg-slate-800 text-slate-400 px-2 py-0.5">{tournament.map}</span>
+          )}
+          {tournament.registration_status && (
+            <span className={`text-[10px] rounded-full px-2 py-0.5 font-semibold ${
+              tournament.registration_status === 'open'
+                ? 'bg-emerald-600/20 text-emerald-400'
+                : 'bg-red-600/20 text-red-400'
+            }`}>
+              Reg: {tournament.registration_status}
+            </span>
+          )}
+        </div>
 
         <div className="grid grid-cols-2 gap-2 text-[11px]">
-          {tournament.game_id && (
-            <div className="rounded-lg bg-slate-900/50 px-3 py-2">
-              <p className="text-slate-500 text-[10px] uppercase tracking-wide mb-0.5">Game</p>
-              <p className="text-slate-200 font-medium">{tournament.game_id}</p>
-            </div>
-          )}
           {tournament.team_size !== undefined && (
             <div className="rounded-lg bg-slate-900/50 px-3 py-2">
               <p className="text-slate-500 text-[10px] uppercase tracking-wide mb-0.5">Mode</p>
@@ -987,22 +899,22 @@ export default function TournamentDetails() {
               <p className="text-slate-200 font-medium">{Number(tournament.entry_fee) === 0 ? 'Free' : `₹${tournament.entry_fee}`}</p>
             </div>
           )}
-          {tournament.prize_pool !== undefined && (
+          {tournament.prize_text && (
             <div className="rounded-lg bg-slate-900/50 px-3 py-2">
-              <p className="text-slate-500 text-[10px] uppercase tracking-wide mb-0.5">Prize Pool</p>
-              <p className="text-slate-200 font-medium">{tournament.prize_pool ? `₹${tournament.prize_pool}` : '—'}</p>
+              <p className="text-slate-500 text-[10px] uppercase tracking-wide mb-0.5">Prize</p>
+              <p className="text-slate-200 font-medium">{tournament.prize_text}</p>
             </div>
           )}
-          {tournament.max_teams && (
+          {tournament.max_slots && (
             <div className="rounded-lg bg-slate-900/50 px-3 py-2">
               <p className="text-slate-500 text-[10px] uppercase tracking-wide mb-0.5">Slots</p>
-              <p className="text-slate-200 font-medium">
-                {allRegs.filter(r => r.status !== 'cancelled' && r.status !== 'rejected').length} / {tournament.max_teams}
+              <p className="text-slate-200 font-medium tabular-nums">
+                {activeRegs.length} / {tournament.max_slots}
               </p>
             </div>
           )}
           {tournament.start_time && (
-            <div className="rounded-lg bg-slate-900/50 px-3 py-2">
+            <div className="rounded-lg bg-slate-900/50 px-3 py-2 col-span-2">
               <p className="text-slate-500 text-[10px] uppercase tracking-wide mb-0.5">Starts</p>
               <p className="text-slate-200 font-medium">{fmtDate(tournament.start_time)}</p>
             </div>
@@ -1035,7 +947,7 @@ export default function TournamentDetails() {
             />
           )}
 
-          {!gameProfile?.game_uid && !myReg && isOpen && (
+          {!gameProfile?.game_uid && !myReg && regOpen && (
             <div className="card border border-slate-700 bg-slate-900/40 space-y-2 text-center py-5">
               <p className="text-xs font-semibold text-slate-300">Set up your profile to register</p>
               <p className="text-[11px] text-slate-500">You need a verified in-game profile to join this tournament.</p>
@@ -1048,11 +960,19 @@ export default function TournamentDetails() {
               <p className="text-[11px] text-slate-400 mt-1">All slots have been filled.</p>
             </div>
           )}
+
+          {!regOpen && !myReg && !isEnded && (
+            <div className="card border border-slate-700 bg-slate-900/40 text-center py-5">
+              <p className="text-xs font-semibold text-slate-300">Registrations Closed</p>
+              <p className="text-[11px] text-slate-500 mt-1">Registration is not open for this tournament.</p>
+            </div>
+          )}
         </>
       )}
 
-      {/* ── Registered Teams List (always visible) ── */}
+      {/* ── Registered Teams List — always visible ── */}
       <RegisteredTeamsList tournamentId={tournament.id} teamSize={tournament.team_size} />
+
     </div>
   )
 }
