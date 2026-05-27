@@ -491,7 +491,6 @@ function RoomCodeCard({ tournamentId }) {
 // ─── Already Registered Panel ─────────────────────────────────────────────────
 function AlreadyRegisteredPanel({ tournament, reg, gameProfile, onUpdated }) {
   const isHost = gameProfile?.game_uid && reg.host_uid === gameProfile.game_uid
-  // Allow editing regardless of status — payment = joined, no lock needed
   const canEdit = isHost
   const teammateNeed = teammateCount(tournament.team_size)
 
@@ -621,7 +620,6 @@ function AlreadyRegisteredPanel({ tournament, reg, gameProfile, onUpdated }) {
           </form>
         )}
       </div>
-      {/* Room code always visible for host once joined */}
       {isHost && <RoomCodeCard tournamentId={tournament.id} />}
       {!isHost && (
         <div className="card border border-slate-700 bg-slate-900/40 space-y-2">
@@ -670,7 +668,6 @@ function RegisterPanel({ tournament, profile, gameProfile, allRegs, onRegistered
       if (p.status !== 'verified') { setErr(`❌ Teammate ${i + 1}: "${p.in_game_name}" not verified yet.`); setSaving(false); return }
     }
 
-    // UID conflict check
     const allUids = [gameProfile.game_uid, ...cleanTeammates].filter(Boolean)
     for (const reg of (allRegs || [])) {
       const { data: existingMembers } = await supabasePlayer
@@ -770,8 +767,10 @@ function RegisterPanel({ tournament, profile, gameProfile, allRegs, onRegistered
 // ─── Main TournamentDetails page ─────────────────────────────────────────────
 export default function TournamentDetails() {
   const { id } = useParams()
-  const { profile, gameProfile, loading: playerLoading } = usePlayer()
-  const { currentGame } = useGame()
+  // profile = player row, loading = auth/profile loading
+  const { profile, loading: playerLoading } = usePlayer()
+  // gameProfile comes from GameContext — has game_uid, status, etc.
+  const { gameProfile, gpLoading } = useGame()
 
   const [tournament, setTournament] = React.useState(null)
   const [allRegs, setAllRegs] = React.useState([])
@@ -808,10 +807,12 @@ export default function TournamentDetails() {
   }
 
   React.useEffect(() => {
-    if (!playerLoading) loadData()
-  }, [id, playerLoading, gameProfile?.game_uid])
+    // Wait for both player auth AND game profile to finish loading
+    if (!playerLoading && !gpLoading) loadData()
+  }, [id, playerLoading, gpLoading, gameProfile?.game_uid])
 
-  if (loading || playerLoading) {
+  // Show spinner while auth or game profile is still resolving
+  if (loading || playerLoading || gpLoading) {
     return (
       <div className="flex items-center justify-center min-h-[40vh] gap-3 text-xs text-slate-400">
         <div className="h-4 w-4 animate-spin rounded-full border-2 border-slate-600 border-t-amber-400" />
@@ -836,7 +837,7 @@ export default function TournamentDetails() {
   const activeRegs = allRegs.filter(r => r.status !== 'cancelled' && r.status !== 'rejected')
   const isFull = tournament.max_slots && activeRegs.length >= tournament.max_slots
 
-  // Only verified game profile can register — pending profile is blocked
+  // Only verified game profile can register
   const isProfileVerified = gameProfile?.status === 'verified'
   const hasGameUid = !!gameProfile?.game_uid
   const canRegister = !isEnded && regOpen && !myReg && hasGameUid && isProfileVerified && !isFull
@@ -939,7 +940,7 @@ export default function TournamentDetails() {
             />
           )}
 
-          {/* Profile not set up at all */}
+          {/* No game profile at all */}
           {!gameProfile && !myReg && regOpen && (
             <div className="card border border-slate-700 bg-slate-900/40 space-y-2 text-center py-5">
               <p className="text-xs font-semibold text-slate-300">Set up your game profile to register</p>
@@ -947,7 +948,7 @@ export default function TournamentDetails() {
             </div>
           )}
 
-          {/* Profile exists but pending admin verification */}
+          {/* Profile exists but pending verification */}
           {gameProfile && !isProfileVerified && !myReg && regOpen && (
             <div className="card border border-amber-700/40 bg-amber-500/5 space-y-2 text-center py-5">
               <span className="text-2xl">⏳</span>
