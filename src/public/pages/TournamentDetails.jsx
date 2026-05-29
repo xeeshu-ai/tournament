@@ -242,8 +242,6 @@ function TournamentResults({ tournament }) {
 
   const isBR = tournament.mode === 'br'
   const isCSorLW = tournament.mode === 'cs' || tournament.mode === 'lw'
-  // FIX: isSingleBR now matches ALL BR tournaments regardless of type (single/long)
-  // BGMI BR tournaments use type='long' but still store results in single_br_results column
   const isSingleBR = isBR
 
   React.useEffect(() => {
@@ -410,9 +408,6 @@ function TournamentResults({ tournament }) {
 }
 
 // ─── Results Panel (shown when results exist OR tournament ended) ─────────────
-// FIX: Show results as soon as they are saved by admin.
-// Previously gated behind status === 'ended', which meant results saved but not
-// yet "ended" were invisible to players. Now checks for actual result data first.
 function ResultsPanel({ tournament }) {
   const isBR = tournament.mode === 'br'
   const isCSorLW = tournament.mode === 'cs' || tournament.mode === 'lw'
@@ -582,7 +577,8 @@ function RegistrationForm({ tournament, player, onRegistered }) {
 
 // ─── Main Page ────────────────────────────────────────────────────────────────
 export default function TournamentDetails() {
-  const { tournamentId } = useParams()
+  // FIX: route is /:gameId/tournaments/:id — param is 'id' not 'tournamentId'
+  const { id: tournamentId } = useParams()
   const { player } = usePlayer()
   const { game } = useGame()
 
