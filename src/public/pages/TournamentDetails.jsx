@@ -577,9 +577,9 @@ function RegistrationForm({ tournament, player, onRegistered }) {
 
 // ─── Main Page ────────────────────────────────────────────────────────────────
 export default function TournamentDetails() {
-  // FIX: route is /:gameId/tournaments/:id — param is 'id' not 'tournamentId'
   const { id: tournamentId } = useParams()
-  const { player } = usePlayer()
+  // FIX: PlayerContext exposes 'profile' not 'player' — renamed here
+  const { profile: player, loading: authLoading } = usePlayer()
   const { game } = useGame()
 
   const [tournament, setTournament] = React.useState(null)
@@ -611,8 +611,12 @@ export default function TournamentDetails() {
 
   React.useEffect(() => {
     loadTournament()
-    checkMyReg()
-  }, [tournamentId, player?.game_uid])
+  }, [tournamentId])
+
+  React.useEffect(() => {
+    // Only check registration after auth is resolved (not still loading)
+    if (!authLoading) checkMyReg()
+  }, [tournamentId, player?.game_uid, authLoading])
 
   if (loading) {
     return (
@@ -634,7 +638,8 @@ export default function TournamentDetails() {
 
   const regOpen = tournament.registration_status === 'open'
   const isEnded = tournament.status === 'ended'
-  const canRegister = regOpen && !isEnded && player && !myReg
+  // Wait for auth to resolve before deciding canRegister — prevents flash of "sign in" message
+  const canRegister = regOpen && !isEnded && !authLoading && player && !myReg
 
   return (
     <div className="space-y-4 pb-8">
@@ -704,7 +709,8 @@ export default function TournamentDetails() {
         </div>
       )}
 
-      {!player && regOpen && !isEnded && (
+      {/* Only show sign-in prompt after auth has fully resolved and user is genuinely not logged in */}
+      {!authLoading && !player && regOpen && !isEnded && (
         <div className="card border border-slate-700 text-center py-4 space-y-1">
           <p className="text-xs text-slate-400">Sign in to register for this tournament.</p>
         </div>
