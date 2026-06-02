@@ -425,32 +425,27 @@ function RoomCodeCard({ tournamentId }) {
 }
 
 // ─── Long Tournament Panel ────────────────────────────────────────────────────
-// Shows the player their match assignment, match status, room code for their specific match,
-// and a full round overview of all matches in the current round.
 function LongTournamentPanel({ tournamentId, myReg }) {
-  const [bracket, setBracket] = React.useState(null)       // long_brackets row
-  const [matches, setMatches] = React.useState(null)        // long_br_matches for current round
-  const [myMatch, setMyMatch] = React.useState(null)        // the match this player is in
-  const [myTeamNo, setMyTeamNo] = React.useState(null)      // slot number inside that match
-  const [roomCode, setRoomCode] = React.useState(undefined) // room code for myMatch
-  const [matchScores, setMatchScores] = React.useState(null)// scores for myMatch if ended
-  const [roundOverview, setRoundOverview] = React.useState(null) // all matches in round
+  const [bracket, setBracket] = React.useState(null)
+  const [matches, setMatches] = React.useState(null)
+  const [myMatch, setMyMatch] = React.useState(null)
+  const [myTeamNo, setMyTeamNo] = React.useState(null)
+  const [roomCode, setRoomCode] = React.useState(undefined)
+  const [matchScores, setMatchScores] = React.useState(null)
+  const [roundOverview, setRoundOverview] = React.useState(null)
   const [loading, setLoading] = React.useState(true)
-
-  const hostUid = myReg?.host_uid || myReg?.team_name // fallback
+  const [lastUpdated, setLastUpdated] = React.useState(null)
 
   async function loadAll() {
-    // 1. Get bracket
     const { data: bkt } = await supabasePlayer
       .from('long_brackets')
       .select('id, current_round, status')
       .eq('tournament_id', tournamentId)
       .maybeSingle()
 
-    if (!bkt) { setLoading(false); return }
+    if (!bkt) { setLoading(false); setLastUpdated(new Date()); return }
     setBracket(bkt)
 
-    // 2. Get all matches for current round
     const { data: allMatches } = await supabasePlayer
       .from('long_br_matches')
       .select('id, match_number, round_number, status, start_time')
@@ -460,9 +455,7 @@ function LongTournamentPanel({ tournamentId, myReg }) {
 
     setMatches(allMatches || [])
 
-    // 3. Find which match the player's team is in
     if (allMatches?.length && myReg?.team_name) {
-      // Look for our team in long_br_match_teams
       const matchIds = allMatches.map(m => m.id)
       const { data: teamRows } = await supabasePlayer
         .from('long_br_match_teams')
@@ -476,7 +469,6 @@ function LongTournamentPanel({ tournamentId, myReg }) {
         setMyMatch(found || null)
         setMyTeamNo(teamRows.team_number)
 
-        // 4. Room code for this match
         const { data: rc } = await supabasePlayer
           .from('long_match_room_codes')
           .select('room_id, room_password, is_revealed')
@@ -484,7 +476,6 @@ function LongTournamentPanel({ tournamentId, myReg }) {
           .maybeSingle()
         setRoomCode(rc || null)
 
-        // 5. Scores if match ended
         if (found?.status === 'ended') {
           const { data: scores } = await supabasePlayer
             .from('long_br_match_scores')
@@ -498,7 +489,6 @@ function LongTournamentPanel({ tournamentId, myReg }) {
       }
     }
 
-    // 6. Round overview (all teams per match)
     if (allMatches?.length) {
       const matchIds = allMatches.map(m => m.id)
       const { data: allTeams } = await supabasePlayer
@@ -516,6 +506,7 @@ function LongTournamentPanel({ tournamentId, myReg }) {
     }
 
     setLoading(false)
+    setLastUpdated(new Date())
   }
 
   React.useEffect(() => {
@@ -549,7 +540,7 @@ function LongTournamentPanel({ tournamentId, myReg }) {
     return (
       <div className="card space-y-2 border border-amber-700/30 bg-amber-500/5">
         <p className="text-xs font-semibold text-amber-300">📋 Round {bracket.current_round} — Match Pending</p>
-        <p className="text-[11px] text-slate-400">Your team hasn't been assigned to a match yet, or this round's matches haven't been generated. Check back in a moment.</p>
+        <p className="text-[11px] text-slate-400">Your team hasn't been assigned to a match yet. Check back in a moment.</p>
         <p className="text-[10px] text-slate-500">Auto-refreshing every 20 seconds.</p>
       </div>
     )
@@ -562,18 +553,31 @@ function LongTournamentPanel({ tournamentId, myReg }) {
   const isMyMatchLive = myMatch.status === 'live'
   const isMyMatchEnded = myMatch.status === 'ended'
   const isMyMatchWaiting = !isMyMatchLive && !isMyMatchEnded
+  const isNextUp = isMyMatchWaiting && waitingFor === 0 && matchesBeforeMe > 0
 
   return (
     <div className="space-y-3">
+      {/* "You're up next" alert */}
+      {isNextUp && (
+        <div className="rounded-xl border border-amber-500/50 bg-amber-500/10 px-4 py-3 flex items-center gap-3">
+          <span className="text-xl shrink-0">⚡</span>
+          <div>
+            <p className="text-xs font-bold text-amber-300">Your match starts next!</p>
+            <p className="text-[11px] text-amber-200/70">Get ready — room details will appear here as soon as they're posted.</p>
+          </div>
+        </div>
+      )}
+
       {/* My Match Card */}
       <div className={`card space-y-3 border ${
         isMyMatchLive ? 'border-emerald-700/50 bg-emerald-500/5' :
         isMyMatchEnded ? 'border-red-800/30 bg-red-500/5' :
+        isNextUp ? 'border-amber-700/50 bg-amber-500/5' :
         'border-sky-800/40 bg-sky-500/5'
       }`}>
         <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-2">
-            <span className="text-base">{isMyMatchLive ? '🟢' : isMyMatchEnded ? '🏁' : '🕐'}</span>
+            <span className="text-base">{isMyMatchLive ? '🟢' : isMyMatchEnded ? '🏁' : isNextUp ? '⚡' : '🕐'}</span>
             <div>
               <p className="text-xs font-bold text-slate-100">
                 Round {bracket.current_round} — Match #{myMatch.match_number}
@@ -581,6 +585,7 @@ function LongTournamentPanel({ tournamentId, myReg }) {
               <p className="text-[11px] text-slate-400">
                 {isMyMatchLive ? 'Your match is LIVE' :
                  isMyMatchEnded ? 'Your match has ended' :
+                 isNextUp ? 'You are up next' :
                  waitingFor > 0 ? `Waiting for ${waitingFor} match${waitingFor !== 1 ? 'es' : ''} before yours` :
                  'Your match starts next'}
               </p>
@@ -589,9 +594,10 @@ function LongTournamentPanel({ tournamentId, myReg }) {
           <span className={`text-[10px] px-2 py-0.5 rounded-full font-semibold uppercase tracking-wide shrink-0 ${
             isMyMatchLive ? 'bg-emerald-600/20 text-emerald-300' :
             isMyMatchEnded ? 'bg-red-600/20 text-red-400' :
+            isNextUp ? 'bg-amber-600/20 text-amber-300' :
             'bg-sky-800/30 text-sky-400'
           }`}>
-            {isMyMatchLive ? 'Live' : isMyMatchEnded ? 'Ended' : 'Upcoming'}
+            {isMyMatchLive ? 'Live' : isMyMatchEnded ? 'Ended' : isNextUp ? 'Up Next' : 'Upcoming'}
           </span>
         </div>
 
@@ -700,9 +706,16 @@ function LongTournamentPanel({ tournamentId, myReg }) {
             </div>
           </div>
         )}
+
+        {/* Last updated */}
+        {lastUpdated && (
+          <p className="text-[10px] text-slate-600 text-right">
+            Updated {lastUpdated.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true })}
+          </p>
+        )}
       </div>
 
-      {/* Round Overview — all matches this round */}
+      {/* Round Overview */}
       {matches && matches.length > 0 && (
         <section className="card space-y-3">
           <div className="flex items-center justify-between gap-2">
@@ -851,7 +864,8 @@ export default function TournamentDetails() {
   const [myReg, setMyReg] = React.useState(undefined)
   const [registered, setRegistered] = React.useState(false)
 
-  const isLong = tournament?.format === 'long'
+  // FIX: was tournament?.format — DB column is `type`
+  const isLong = tournament?.type === 'long'
 
   async function loadTournament() {
     const { data, error } = await supabasePlayer
@@ -928,14 +942,16 @@ export default function TournamentDetails() {
         </div>
 
         <div className="flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-slate-400">
-          <span>🎮 {getModeLabel(tournament.mode)}</span>
+          {/* FIX: getModeLabel needs (gameId, modeId) — was getModeLabel(tournament.mode) */}
+          <span>🎮 {getModeLabel(game?.id, tournament.mode)}</span>
           {tournament.team_size && <span>👥 {teamSizeLabel(tournament.team_size)}</span>}
-          {tournament.prize_pool && <span>🏆 ₹{tournament.prize_pool}</span>}
+          {/* FIX: DB column is prize_text, not prize_pool */}
+          {tournament.prize_text && <span>🏆 {tournament.prize_text}</span>}
           {tournament.entry_fee != null && (
             <span>{tournament.entry_fee === 0 ? '🆓 Free Entry' : `💰 ₹${tournament.entry_fee} entry`}</span>
           )}
           {tournament.start_time && <span>📅 {fmtDate(tournament.start_time)}</span>}
-          {tournament.max_teams && <span>🔢 Max {tournament.max_teams} teams</span>}
+          {tournament.max_slots && <span>🔢 {tournament.max_slots} slots</span>}
         </div>
 
         {tournament.description && (
