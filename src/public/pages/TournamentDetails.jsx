@@ -237,42 +237,8 @@ function RegisteredTeamsList({ tournamentId, teamSize }) {
 
 // ─── Tournament Results ───────────────────────────────────────────────────────
 function TournamentResults({ tournament }) {
-  const [brScores, setBrScores] = React.useState(null)
-  const [loading, setLoading] = React.useState(false)
-
   const isBR = tournament.mode === 'br'
   const isCSorLW = tournament.mode === 'cs' || tournament.mode === 'lw'
-  const isSingleBR = isBR
-
-  React.useEffect(() => {
-    if (!isBR || isSingleBR) return
-    async function fetchBrScores() {
-      setLoading(true)
-      const { data: bracket } = await supabasePlayer
-        .from('long_brackets').select('id').eq('tournament_id', tournament.id).maybeSingle()
-      if (!bracket) { setLoading(false); return }
-      const { data: match } = await supabasePlayer
-        .from('long_br_matches').select('id').eq('bracket_id', bracket.id)
-        .order('round_number', { ascending: true }).limit(1).maybeSingle()
-      if (!match) { setLoading(false); return }
-      const { data: scores } = await supabasePlayer
-        .from('long_br_match_scores')
-        .select('team_name, kills, position, points, player_names')
-        .eq('match_id', match.id).order('points', { ascending: false })
-      setBrScores(scores || [])
-      setLoading(false)
-    }
-    fetchBrScores()
-  }, [tournament.id, isBR, isSingleBR])
-
-  if (loading) {
-    return (
-      <section className="card flex items-center gap-3 py-5 text-xs text-slate-400">
-        <div className="h-4 w-4 animate-spin rounded-full border-2 border-slate-600 border-t-amber-400" />
-        <p>Loading results…</p>
-      </section>
-    )
-  }
 
   return (
     <section id="tournament-results" className="card space-y-4 border border-amber-700/40 bg-amber-500/5">
@@ -288,7 +254,7 @@ function TournamentResults({ tournament }) {
         </div>
       )}
 
-      {isSingleBR && Array.isArray(tournament.single_br_results) && tournament.single_br_results.length > 0 && (
+      {isBR && Array.isArray(tournament.single_br_results) && tournament.single_br_results.length > 0 && (
         <div className="overflow-x-auto">
           <table className="w-full text-xs">
             <thead>
@@ -296,8 +262,8 @@ function TournamentResults({ tournament }) {
                 <th className="pb-2 text-left w-8">#</th>
                 <th className="pb-2 text-left">Team</th>
                 <th className="pb-2 text-center">Kills</th>
-                <th className="pb-2 text-center">Position</th>
-                <th className="pb-2 text-right">Points</th>
+                <th className="pb-2 text-center">Pos</th>
+                <th className="pb-2 text-right">Pts</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-800">
@@ -328,51 +294,7 @@ function TournamentResults({ tournament }) {
         </div>
       )}
 
-      {isSingleBR && (!tournament.single_br_results || tournament.single_br_results.length === 0) && !tournament.winner_text && (
-        <p className="text-xs text-slate-400">Results will be posted shortly.</p>
-      )}
-
-      {isBR && !isSingleBR && brScores?.length > 0 && (
-        <div className="overflow-x-auto">
-          <table className="w-full text-xs">
-            <thead>
-              <tr className="border-b border-slate-700 text-[10px] uppercase tracking-wide text-slate-500">
-                <th className="pb-2 text-left w-8">#</th>
-                <th className="pb-2 text-left">Team</th>
-                <th className="pb-2 text-center">Kills</th>
-                <th className="pb-2 text-center">Position</th>
-                <th className="pb-2 text-right">Points</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-800">
-              {brScores.map((row, i) => (
-                <tr key={row.team_name} className={i === 0 ? 'bg-amber-500/10' : ''}>
-                  <td className="py-2 pr-2">
-                    {i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : <span className="text-slate-500">{i + 1}</span>}
-                  </td>
-                  <td className={`py-2 font-semibold ${i === 0 ? 'text-amber-300' : 'text-slate-100'}`}>
-                    <div>{row.team_name}</div>
-                    {row.player_names?.length > 0 && (
-                      <div className="flex flex-wrap gap-1 mt-0.5">
-                        {row.player_names.map((name, ni) => (
-                          <span key={ni} className="text-[10px] text-slate-400">{name}</span>
-                        ))}
-                      </div>
-                    )}
-                  </td>
-                  <td className="py-2 text-center text-slate-300">{row.kills}</td>
-                  <td className="py-2 text-center text-slate-300">#{row.position}</td>
-                  <td className={`py-2 text-right font-bold tabular-nums ${i === 0 ? 'text-amber-300' : 'text-sky-300'}`}>
-                    {typeof row.points === 'number' ? row.points.toFixed(1) : row.points}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-
-      {isBR && !isSingleBR && brScores !== null && brScores.length === 0 && !tournament.winner_text && (
+      {isBR && (!tournament.single_br_results || tournament.single_br_results.length === 0) && !tournament.winner_text && (
         <p className="text-xs text-slate-400">Results will be posted shortly.</p>
       )}
 
@@ -407,7 +329,7 @@ function TournamentResults({ tournament }) {
   )
 }
 
-// ─── Results Panel (shown when results exist OR tournament ended) ─────────────
+// ─── Results Panel ─────────────────────────────────────────────────────────────
 function ResultsPanel({ tournament }) {
   const isBR = tournament.mode === 'br'
   const isCSorLW = tournament.mode === 'cs' || tournament.mode === 'lw'
@@ -435,7 +357,7 @@ function ResultsPanel({ tournament }) {
   )
 }
 
-// ─── Room Code Card ───────────────────────────────────────────────────────────
+// ─── Room Code Card (single match) ────────────────────────────────────────────
 function RoomCodeCard({ tournamentId }) {
   const [roomCode, setRoomCode] = React.useState(undefined)
 
@@ -454,7 +376,7 @@ function RoomCodeCard({ tournamentId }) {
   if (roomCode === undefined) {
     return (
       <div className="card space-y-2" id="tournament-room">
-        <p className="text-xs font-semibold text-slate-300">🎮 Room Details <span className="text-[10px] text-amber-400 font-normal ml-1">(Host only)</span></p>
+        <p className="text-xs font-semibold text-slate-300">🎮 Room Details</p>
         <p className="text-[11px] text-slate-500 animate-pulse">Loading…</p>
       </div>
     )
@@ -462,7 +384,7 @@ function RoomCodeCard({ tournamentId }) {
   if (!roomCode) {
     return (
       <div className="card space-y-2" id="tournament-room">
-        <p className="text-xs font-semibold text-slate-300">🎮 Room Details <span className="text-[10px] text-amber-400 font-normal ml-1">(Host only)</span></p>
+        <p className="text-xs font-semibold text-slate-300">🎮 Room Details</p>
         <p className="text-[11px] text-slate-500">Room details not added yet. Check back later.</p>
       </div>
     )
@@ -470,18 +392,18 @@ function RoomCodeCard({ tournamentId }) {
   if (!roomCode.is_revealed) {
     return (
       <div className="card space-y-2 border border-amber-700/40 bg-amber-500/5" id="tournament-room">
-        <p className="text-xs font-semibold text-amber-300">🎮 Room Details <span className="text-[10px] font-normal ml-1 text-amber-400">(Host only)</span></p>
-        <p className="text-[11px] text-slate-400 leading-relaxed">Room code added but not yet revealed. Keep this page open and refresh later.</p>
+        <p className="text-xs font-semibold text-amber-300">🎮 Room Details</p>
+        <p className="text-[11px] text-slate-400 leading-relaxed">Room code added but not yet revealed. Keep this page open — it refreshes automatically.</p>
       </div>
     )
   }
   return (
     <div className="card space-y-3 border border-emerald-700/40 bg-emerald-500/5" id="tournament-room">
       <div className="flex items-center justify-between gap-3">
-        <p className="text-xs font-semibold text-emerald-300">🎮 Room Details <span className="text-[10px] font-normal ml-1 text-amber-400">(Host only)</span></p>
+        <p className="text-xs font-semibold text-emerald-300">🎮 Room Details</p>
         <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-600/20 text-emerald-300 font-semibold uppercase tracking-wide">Live</span>
       </div>
-      <p className="text-[11px] text-slate-400">Share carefully with your teammates only.</p>
+      <p className="text-[11px] text-slate-400">Share only with your teammates.</p>
       <div className="rounded-xl bg-slate-950/50 ring-1 ring-white/10 p-3 space-y-3">
         <div className="flex items-center justify-between gap-3">
           <div>
@@ -498,6 +420,349 @@ function RoomCodeCard({ tournamentId }) {
           <button type="button" className="btn-secondary text-[11px] px-3 py-1.5" onClick={() => navigator.clipboard.writeText(roomCode.room_password || '')}>Copy</button>
         </div>
       </div>
+    </div>
+  )
+}
+
+// ─── Long Tournament Panel ────────────────────────────────────────────────────
+// Shows the player their match assignment, match status, room code for their specific match,
+// and a full round overview of all matches in the current round.
+function LongTournamentPanel({ tournamentId, myReg }) {
+  const [bracket, setBracket] = React.useState(null)       // long_brackets row
+  const [matches, setMatches] = React.useState(null)        // long_br_matches for current round
+  const [myMatch, setMyMatch] = React.useState(null)        // the match this player is in
+  const [myTeamNo, setMyTeamNo] = React.useState(null)      // slot number inside that match
+  const [roomCode, setRoomCode] = React.useState(undefined) // room code for myMatch
+  const [matchScores, setMatchScores] = React.useState(null)// scores for myMatch if ended
+  const [roundOverview, setRoundOverview] = React.useState(null) // all matches in round
+  const [loading, setLoading] = React.useState(true)
+
+  const hostUid = myReg?.host_uid || myReg?.team_name // fallback
+
+  async function loadAll() {
+    // 1. Get bracket
+    const { data: bkt } = await supabasePlayer
+      .from('long_brackets')
+      .select('id, current_round, status')
+      .eq('tournament_id', tournamentId)
+      .maybeSingle()
+
+    if (!bkt) { setLoading(false); return }
+    setBracket(bkt)
+
+    // 2. Get all matches for current round
+    const { data: allMatches } = await supabasePlayer
+      .from('long_br_matches')
+      .select('id, match_number, round_number, status, start_time')
+      .eq('bracket_id', bkt.id)
+      .eq('round_number', bkt.current_round)
+      .order('match_number', { ascending: true })
+
+    setMatches(allMatches || [])
+
+    // 3. Find which match the player's team is in
+    if (allMatches?.length && myReg?.team_name) {
+      // Look for our team in long_br_match_teams
+      const matchIds = allMatches.map(m => m.id)
+      const { data: teamRows } = await supabasePlayer
+        .from('long_br_match_teams')
+        .select('match_id, team_name, team_number')
+        .in('match_id', matchIds)
+        .eq('team_name', myReg.team_name)
+        .maybeSingle()
+
+      if (teamRows) {
+        const found = allMatches.find(m => m.id === teamRows.match_id)
+        setMyMatch(found || null)
+        setMyTeamNo(teamRows.team_number)
+
+        // 4. Room code for this match
+        const { data: rc } = await supabasePlayer
+          .from('long_match_room_codes')
+          .select('room_id, room_password, is_revealed')
+          .eq('match_id', teamRows.match_id)
+          .maybeSingle()
+        setRoomCode(rc || null)
+
+        // 5. Scores if match ended
+        if (found?.status === 'ended') {
+          const { data: scores } = await supabasePlayer
+            .from('long_br_match_scores')
+            .select('team_name, kills, position, points, player_names')
+            .eq('match_id', found.id)
+            .order('points', { ascending: false })
+          setMatchScores(scores || [])
+        }
+      } else {
+        setMyMatch(null)
+      }
+    }
+
+    // 6. Round overview (all teams per match)
+    if (allMatches?.length) {
+      const matchIds = allMatches.map(m => m.id)
+      const { data: allTeams } = await supabasePlayer
+        .from('long_br_match_teams')
+        .select('match_id, team_name, team_number')
+        .in('match_id', matchIds)
+        .order('team_number', { ascending: true })
+
+      const byMatch = {}
+      for (const t of (allTeams || [])) {
+        if (!byMatch[t.match_id]) byMatch[t.match_id] = []
+        byMatch[t.match_id].push(t)
+      }
+      setRoundOverview(byMatch)
+    }
+
+    setLoading(false)
+  }
+
+  React.useEffect(() => {
+    loadAll()
+    const interval = setInterval(loadAll, 20_000)
+    return () => clearInterval(interval)
+  }, [tournamentId, myReg?.team_name])
+
+  if (loading) {
+    return (
+      <div className="card flex items-center gap-3 py-5 text-xs text-slate-400">
+        <div className="h-4 w-4 animate-spin rounded-full border-2 border-slate-600 border-t-amber-400" />
+        <p>Loading your match…</p>
+      </div>
+    )
+  }
+
+  if (!bracket) {
+    return (
+      <div className="card space-y-2 border border-slate-700/60 bg-slate-900/40">
+        <p className="text-xs font-semibold text-slate-300">⏳ Waiting for Bracket</p>
+        <p className="text-[11px] text-slate-400 leading-relaxed">
+          Entries are closed. The organiser is generating the bracket — your match assignment will appear here shortly.
+        </p>
+        <p className="text-[10px] text-slate-500">This page refreshes automatically every 20 seconds.</p>
+      </div>
+    )
+  }
+
+  if (!myMatch) {
+    return (
+      <div className="card space-y-2 border border-amber-700/30 bg-amber-500/5">
+        <p className="text-xs font-semibold text-amber-300">📋 Round {bracket.current_round} — Match Pending</p>
+        <p className="text-[11px] text-slate-400">Your team hasn't been assigned to a match yet, or this round's matches haven't been generated. Check back in a moment.</p>
+        <p className="text-[10px] text-slate-500">Auto-refreshing every 20 seconds.</p>
+      </div>
+    )
+  }
+
+  const totalMatches = matches?.length || 0
+  const completedBefore = matches?.filter(m => m.match_number < myMatch.match_number && m.status === 'ended').length || 0
+  const matchesBeforeMe = myMatch.match_number - 1
+  const waitingFor = matchesBeforeMe - completedBefore
+  const isMyMatchLive = myMatch.status === 'live'
+  const isMyMatchEnded = myMatch.status === 'ended'
+  const isMyMatchWaiting = !isMyMatchLive && !isMyMatchEnded
+
+  return (
+    <div className="space-y-3">
+      {/* My Match Card */}
+      <div className={`card space-y-3 border ${
+        isMyMatchLive ? 'border-emerald-700/50 bg-emerald-500/5' :
+        isMyMatchEnded ? 'border-red-800/30 bg-red-500/5' :
+        'border-sky-800/40 bg-sky-500/5'
+      }`}>
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <span className="text-base">{isMyMatchLive ? '🟢' : isMyMatchEnded ? '🏁' : '🕐'}</span>
+            <div>
+              <p className="text-xs font-bold text-slate-100">
+                Round {bracket.current_round} — Match #{myMatch.match_number}
+              </p>
+              <p className="text-[11px] text-slate-400">
+                {isMyMatchLive ? 'Your match is LIVE' :
+                 isMyMatchEnded ? 'Your match has ended' :
+                 waitingFor > 0 ? `Waiting for ${waitingFor} match${waitingFor !== 1 ? 'es' : ''} before yours` :
+                 'Your match starts next'}
+              </p>
+            </div>
+          </div>
+          <span className={`text-[10px] px-2 py-0.5 rounded-full font-semibold uppercase tracking-wide shrink-0 ${
+            isMyMatchLive ? 'bg-emerald-600/20 text-emerald-300' :
+            isMyMatchEnded ? 'bg-red-600/20 text-red-400' :
+            'bg-sky-800/30 text-sky-400'
+          }`}>
+            {isMyMatchLive ? 'Live' : isMyMatchEnded ? 'Ended' : 'Upcoming'}
+          </span>
+        </div>
+
+        {/* Slot info */}
+        {myTeamNo != null && (
+          <div className="rounded-lg bg-slate-900/60 ring-1 ring-white/10 px-3 py-2.5 flex items-center gap-3">
+            <div className="w-8 h-8 rounded-lg bg-amber-500/20 ring-1 ring-amber-600/40 flex items-center justify-center text-sm font-bold text-amber-300 shrink-0 tabular-nums">
+              {myTeamNo}
+            </div>
+            <div>
+              <p className="text-[10px] uppercase tracking-wide text-slate-500">Your Team Slot</p>
+              <p className="text-xs font-semibold text-slate-200">
+                {myReg.team_name} · Slot #{myTeamNo}
+              </p>
+              <p className="text-[11px] text-slate-400">
+                Enter <span className="font-semibold text-amber-300">slot {myTeamNo}</span> when joining the custom room
+              </p>
+            </div>
+          </div>
+        )}
+
+        {/* Match queue progress bar */}
+        {isMyMatchWaiting && totalMatches > 1 && (
+          <div className="space-y-1.5">
+            <div className="flex justify-between text-[10px] text-slate-500">
+              <span>Match queue progress</span>
+              <span className="tabular-nums">{completedBefore}/{matchesBeforeMe} before yours</span>
+            </div>
+            <div className="h-1.5 rounded-full bg-slate-800 overflow-hidden">
+              <div
+                className="h-full rounded-full bg-amber-500 transition-all duration-500"
+                style={{ width: matchesBeforeMe > 0 ? `${(completedBefore / matchesBeforeMe) * 100}%` : '0%' }}
+              />
+            </div>
+          </div>
+        )}
+
+        {/* Room code for this match */}
+        {isMyMatchLive && roomCode === undefined && (
+          <p className="text-[11px] text-slate-500 animate-pulse">Loading room details…</p>
+        )}
+        {isMyMatchLive && roomCode === null && (
+          <div className="rounded-lg bg-amber-500/5 ring-1 ring-amber-700/40 px-3 py-2.5 text-[11px] text-amber-300">
+            Room details not posted yet — page refreshes automatically.
+          </div>
+        )}
+        {isMyMatchLive && roomCode && !roomCode.is_revealed && (
+          <div className="rounded-lg bg-amber-500/5 ring-1 ring-amber-700/40 px-3 py-2.5 text-[11px] text-amber-300">
+            Room code is ready but not yet revealed. Stay on this page — it will appear automatically.
+          </div>
+        )}
+        {isMyMatchLive && roomCode?.is_revealed && (
+          <div className="rounded-xl bg-slate-950/50 ring-1 ring-emerald-700/40 p-3 space-y-3">
+            <p className="text-[10px] uppercase tracking-wide text-emerald-400 font-semibold">🎮 Room Details — Match #{myMatch.match_number}</p>
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <p className="text-[10px] uppercase tracking-wide text-slate-500">Room ID</p>
+                <span className="font-mono text-sm font-bold text-slate-50 tracking-wider select-all">{roomCode.room_id}</span>
+              </div>
+              <button type="button" className="btn-secondary text-[11px] px-3 py-1.5" onClick={() => navigator.clipboard.writeText(roomCode.room_id || '')}>Copy</button>
+            </div>
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <p className="text-[10px] uppercase tracking-wide text-slate-500">Password</p>
+                <span className="font-mono text-sm font-bold text-slate-50 tracking-wider select-all">{roomCode.room_password}</span>
+              </div>
+              <button type="button" className="btn-secondary text-[11px] px-3 py-1.5" onClick={() => navigator.clipboard.writeText(roomCode.room_password || '')}>Copy</button>
+            </div>
+          </div>
+        )}
+
+        {/* Results for this match */}
+        {isMyMatchEnded && matchScores && matchScores.length > 0 && (
+          <div className="space-y-2">
+            <p className="text-[10px] uppercase tracking-wide text-slate-500 font-semibold">Match #{myMatch.match_number} Results</p>
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="border-b border-slate-700 text-[10px] uppercase tracking-wide text-slate-500">
+                    <th className="pb-1.5 text-left w-6">#</th>
+                    <th className="pb-1.5 text-left">Team</th>
+                    <th className="pb-1.5 text-center">K</th>
+                    <th className="pb-1.5 text-center">Pos</th>
+                    <th className="pb-1.5 text-right">Pts</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-800/60">
+                  {matchScores.map((row, i) => (
+                    <tr key={row.team_name + i} className={`${i === 0 ? 'bg-amber-500/8' : ''} ${row.team_name === myReg?.team_name ? 'ring-1 ring-sky-700/40 bg-sky-500/5' : ''}`}>
+                      <td className="py-1.5 pr-1">
+                        {i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : <span className="text-slate-500">{i + 1}</span>}
+                      </td>
+                      <td className={`py-1.5 font-semibold ${i === 0 ? 'text-amber-300' : row.team_name === myReg?.team_name ? 'text-sky-300' : 'text-slate-100'}`}>
+                        {row.team_name}
+                        {row.team_name === myReg?.team_name && <span className="ml-1 text-[9px] text-sky-400 font-semibold uppercase tracking-wide">you</span>}
+                      </td>
+                      <td className="py-1.5 text-center text-slate-300">{row.kills}</td>
+                      <td className="py-1.5 text-center text-slate-300">#{row.position}</td>
+                      <td className={`py-1.5 text-right font-bold tabular-nums ${i === 0 ? 'text-amber-300' : 'text-sky-300'}`}>
+                        {typeof row.points === 'number' ? row.points.toFixed(1) : row.points}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Round Overview — all matches this round */}
+      {matches && matches.length > 0 && (
+        <section className="card space-y-3">
+          <div className="flex items-center justify-between gap-2">
+            <p className="text-xs font-semibold text-slate-300">📊 Round {bracket.current_round} Overview</p>
+            <span className="text-[10px] rounded-full bg-slate-800 text-slate-400 px-2 py-0.5 font-semibold tabular-nums">
+              {matches.length} match{matches.length !== 1 ? 'es' : ''}
+            </span>
+          </div>
+
+          <div className="space-y-2">
+            {matches.map((m) => {
+              const isMe = myMatch?.id === m.id
+              const teams = roundOverview?.[m.id] || []
+              const statusColor = m.status === 'live' ? 'text-emerald-400' : m.status === 'ended' ? 'text-red-400' : 'text-slate-500'
+              const statusLabel = m.status === 'live' ? '● Live' : m.status === 'ended' ? 'Ended' : 'Upcoming'
+
+              return (
+                <div
+                  key={m.id}
+                  className={`rounded-xl ring-1 px-3 py-2.5 space-y-1.5 ${
+                    isMe
+                      ? 'ring-sky-700/40 bg-sky-500/5'
+                      : m.status === 'live'
+                      ? 'ring-emerald-700/20 bg-emerald-500/5'
+                      : m.status === 'ended'
+                      ? 'ring-slate-700/30 bg-slate-900/30'
+                      : 'ring-slate-700/50 bg-slate-900/40'
+                  }`}
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-xs font-semibold text-slate-200">
+                      Match #{m.match_number}
+                      {isMe && <span className="ml-2 text-[9px] text-sky-400 font-semibold uppercase tracking-wider">your match</span>}
+                    </span>
+                    <span className={`text-[10px] font-semibold ${statusColor}`}>{statusLabel}</span>
+                  </div>
+
+                  {teams.length > 0 && (
+                    <div className="flex flex-wrap gap-1.5">
+                      {teams.map((t) => (
+                        <span
+                          key={t.team_number}
+                          className={`inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-[10px] font-medium ring-1 ${
+                            t.team_name === myReg?.team_name
+                              ? 'bg-sky-500/15 ring-sky-700/50 text-sky-300'
+                              : 'bg-slate-800/60 ring-slate-700/40 text-slate-400'
+                          }`}
+                        >
+                          <span className="tabular-nums text-slate-500">#{t.team_number}</span>
+                          <span className="truncate max-w-[80px]">{t.team_name}</span>
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        </section>
+      )}
     </div>
   )
 }
@@ -578,7 +843,6 @@ function RegistrationForm({ tournament, player, onRegistered }) {
 // ─── Main Page ────────────────────────────────────────────────────────────────
 export default function TournamentDetails() {
   const { id: tournamentId } = useParams()
-  // FIX: PlayerContext exposes 'profile' not 'player' — renamed here
   const { profile: player, loading: authLoading } = usePlayer()
   const { game } = useGame()
 
@@ -586,6 +850,8 @@ export default function TournamentDetails() {
   const [loading, setLoading] = React.useState(true)
   const [myReg, setMyReg] = React.useState(undefined)
   const [registered, setRegistered] = React.useState(false)
+
+  const isLong = tournament?.format === 'long'
 
   async function loadTournament() {
     const { data, error } = await supabasePlayer
@@ -602,7 +868,7 @@ export default function TournamentDetails() {
     if (!player?.game_uid) { setMyReg(null); return }
     const { data } = await supabasePlayer
       .from('tournament_registrations')
-      .select('id, team_name, status')
+      .select('id, team_name, status, host_uid')
       .eq('tournament_id', tournamentId)
       .eq('host_uid', player.game_uid)
       .maybeSingle()
@@ -614,7 +880,6 @@ export default function TournamentDetails() {
   }, [tournamentId])
 
   React.useEffect(() => {
-    // Only check registration after auth is resolved (not still loading)
     if (!authLoading) checkMyReg()
   }, [tournamentId, player?.game_uid, authLoading])
 
@@ -638,7 +903,6 @@ export default function TournamentDetails() {
 
   const regOpen = tournament.registration_status === 'open'
   const isEnded = tournament.status === 'ended'
-  // Wait for auth to resolve before deciding canRegister — prevents flash of "sign in" message
   const canRegister = regOpen && !isEnded && !authLoading && player && !myReg
 
   return (
@@ -646,7 +910,14 @@ export default function TournamentDetails() {
       {/* Header */}
       <div className="card space-y-2">
         <div className="flex items-start justify-between gap-3">
-          <h1 className="text-base font-bold text-slate-50 leading-tight">{tournament.title}</h1>
+          <div className="space-y-0.5">
+            <h1 className="text-base font-bold text-slate-50 leading-tight">{tournament.title}</h1>
+            {isLong && (
+              <span className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full bg-purple-600/20 text-purple-300 font-semibold uppercase tracking-wide">
+                ⚔️ Long Format
+              </span>
+            )}
+          </div>
           <span className={`text-[10px] px-2 py-0.5 rounded-full font-semibold uppercase tracking-wide shrink-0 ${
             isEnded ? 'bg-red-600/20 text-red-400' :
             tournament.status === 'live' ? 'bg-emerald-600/20 text-emerald-400' :
@@ -672,29 +943,23 @@ export default function TournamentDetails() {
         )}
       </div>
 
-      {/* Results panel — shown as soon as results exist, regardless of status */}
-      <ResultsPanel tournament={tournament} />
+      {/* Results panel */}
+      {!isLong && <ResultsPanel tournament={tournament} />}
 
-      {/* Room code — only for registered players in active tournaments */}
-      {myReg && !isEnded && <RoomCodeCard tournamentId={tournamentId} />}
-
-      {/* Registration */}
-      {canRegister && (
-        <RegistrationForm
-          tournament={tournament}
-          player={player}
-          onRegistered={() => { setRegistered(true); checkMyReg(); loadTournament() }}
-        />
-      )}
-
-      {registered && (
-        <div className="card border border-emerald-700/40 bg-emerald-500/5 text-center py-4 space-y-1">
-          <span className="text-2xl">🎉</span>
-          <p className="text-sm font-semibold text-emerald-300">Registration successful!</p>
-          <p className="text-[11px] text-slate-400">You will receive room details before the match starts.</p>
+      {/* Long tournament ended final standings */}
+      {isLong && isEnded && tournament.winner_text && (
+        <div className="card border border-amber-700/40 bg-amber-500/5 space-y-3">
+          <div className="flex items-center gap-2">
+            <span className="text-lg">🏆</span>
+            <h2 className="text-sm font-semibold text-amber-300">Tournament Complete</h2>
+          </div>
+          <div className="rounded-lg bg-amber-500/10 px-3 py-3 ring-1 ring-amber-700/50">
+            <p className="text-xs text-amber-200 whitespace-pre-line">{tournament.winner_text}</p>
+          </div>
         </div>
       )}
 
+      {/* My registration status badge */}
       {myReg && !registered && (
         <div className={`card space-y-1 border ${myReg.status === 'confirmed' ? 'border-emerald-700/40 bg-emerald-500/5' : 'border-amber-700/40 bg-amber-500/5'}`}>
           <p className="text-xs font-semibold text-slate-300">
@@ -709,7 +974,35 @@ export default function TournamentDetails() {
         </div>
       )}
 
-      {/* Only show sign-in prompt after auth has fully resolved and user is genuinely not logged in */}
+      {/* Long tournament panel — shown after confirmed registration */}
+      {isLong && myReg?.status === 'confirmed' && !isEnded && (
+        <LongTournamentPanel tournamentId={tournamentId} myReg={myReg} />
+      )}
+
+      {/* Single-match room code — only for non-long confirmed registrations */}
+      {!isLong && myReg && !isEnded && <RoomCodeCard tournamentId={tournamentId} />}
+
+      {/* Registration form */}
+      {canRegister && (
+        <RegistrationForm
+          tournament={tournament}
+          player={player}
+          onRegistered={() => { setRegistered(true); checkMyReg(); loadTournament() }}
+        />
+      )}
+
+      {registered && (
+        <div className="card border border-emerald-700/40 bg-emerald-500/5 text-center py-4 space-y-1">
+          <span className="text-2xl">🎉</span>
+          <p className="text-sm font-semibold text-emerald-300">Registration successful!</p>
+          <p className="text-[11px] text-slate-400">
+            {isLong
+              ? 'Once entries close and the bracket is generated, you\'ll see your match assignment here.'
+              : 'You will receive room details before the match starts.'}
+          </p>
+        </div>
+      )}
+
       {!authLoading && !player && regOpen && !isEnded && (
         <div className="card border border-slate-700 text-center py-4 space-y-1">
           <p className="text-xs text-slate-400">Sign in to register for this tournament.</p>
