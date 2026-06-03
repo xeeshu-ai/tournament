@@ -549,6 +549,8 @@ export function LeagueTournamentPage() {
   const [myRegistration, setMyRegistration] = React.useState(null)
   const [myScores, setMyScores] = React.useState([])
   const [hostGameProfile, setHostGameProfile] = React.useState(null)
+  // 'loading' = not yet fetched, 'done' = fetch completed (may be null/approved/other)
+  const [gameProfileState, setGameProfileState] = React.useState('loading')
   const [loading, setLoading] = React.useState(true)
   const [showRegister, setShowRegister] = React.useState(false)
   const [activeTab, setActiveTab] = React.useState('standings')
@@ -557,6 +559,7 @@ export function LeagueTournamentPage() {
   const load = React.useCallback(async () => {
     if (!tournamentId) return
     setLoading(true)
+    setGameProfileState('loading')
 
     const [{ data: t }, { data: b }, { data: m }, { data: scores }] = await Promise.all([
       supabasePlayer.from('tournaments').select('*').eq('id', tournamentId).maybeSingle(),
@@ -605,7 +608,12 @@ export function LeagueTournamentPage() {
       if (t?.game_id) {
         const gp = await fetchGameProfile(profile.id, t.game_id)
         setHostGameProfile(gp)
+        setGameProfileState('done')
+      } else {
+        setGameProfileState('done')
       }
+    } else {
+      setGameProfileState('done')
     }
 
     setLoading(false)
@@ -640,10 +648,16 @@ export function LeagueTournamentPage() {
     )
   }
 
+  // Only show the profile warning when the fetch is complete AND the profile
+  // is confirmed missing or non-approved. Never block on null while still loading.
+  const profileNotApproved =
+    gameProfileState === 'done' &&
+    (!hostGameProfile || hostGameProfile.status !== 'approved')
+
   const canRegister = !myRegistration
     && tournament.status !== 'completed'
     && tournament.registration_status !== 'closed'
-    && hostGameProfile?.status === 'approved'
+    && !profileNotApproved
 
   const tabs = [
     { id: 'standings', label: '🏆 Standings' },
@@ -698,7 +712,11 @@ export function LeagueTournamentPage() {
 
           {!myRegistration && !regSuccess && profile && (
             <>
-              {hostGameProfile?.status !== 'approved' ? (
+              {gameProfileState === 'loading' ? (
+                <div className="rounded-xl bg-slate-800/60 px-4 py-3 text-xs text-slate-500 animate-pulse">
+                  Checking your game profile…
+                </div>
+              ) : profileNotApproved ? (
                 <div className="rounded-xl bg-yellow-500/10 border border-yellow-500/20 px-4 py-3 text-xs text-yellow-300">
                   ⚠️ You need a verified {tournament.game_id?.toUpperCase()} profile to register.{' '}
                   <Link to={`/${tournament.game_id}/setup`} className="underline">Set up profile →</Link>
