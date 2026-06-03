@@ -42,11 +42,17 @@ export function AppShell() {
         { to: `/${game.id}/contact`,     label: 'Contact',     icon: <MailIcon /> },
       ]
     : [
+        { to: '/',            label: 'Home',    icon: <HomeIcon /> },
         { to: '/select-game', label: 'Games',   icon: <GamepadIcon /> },
-        { to: '/league',      label: 'League',  icon: <LeagueIcon /> },
+        { to: '/league',      label: 'League',  icon: <LeagueIcon />, badge: 'New' },
         { to: '/rules',       label: 'Rules',   icon: <ShieldIcon /> },
         { to: '/contact',     label: 'Contact', icon: <MailIcon /> },
       ]
+
+  const isActiveLink = (to) => {
+    if (to === '/') return location.pathname === '/'
+    return location.pathname === to || location.pathname.startsWith(to + '/')
+  }
 
   const PlayerChip = () => {
     if (!profile?.profile_setup) return null
@@ -73,7 +79,7 @@ export function AppShell() {
         aria-label="Mobile navigation"
       >
         <div className="flex items-center justify-between border-b border-slate-800 px-5 py-4">
-          <Link to={game ? `/${game.id}/tournaments` : '/select-game'} className="flex items-center gap-2">
+          <Link to={game ? `/${game.id}/tournaments` : '/'} className="flex items-center gap-2">
             <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-sky-500 text-slate-950 shadow-lg shadow-sky-500/40">
               <span className="text-base font-black tracking-tight">T</span>
             </div>
@@ -90,15 +96,15 @@ export function AppShell() {
         <nav className="flex-1 overflow-y-auto px-3 py-4 space-y-1">
           {game && (
             <button
-              onClick={() => { navigate('/select-game'); setSidebarOpen(false) }}
+              onClick={() => { navigate('/'); setSidebarOpen(false) }}
               className="flex w-full items-center gap-3 rounded-xl border border-slate-700/60 bg-slate-800/40 px-3 py-2.5 text-xs font-medium text-slate-400 hover:border-slate-500 hover:text-slate-200 transition-colors mb-3"
             >
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M15 18l-6-6 6-6" /></svg>
-              Back to games
+              Back to Home
             </button>
           )}
           {navItems.map((item) => {
-            const isActive = location.pathname === item.to || location.pathname.startsWith(item.to + '/')
+            const isActive = isActiveLink(item.to)
             return (
               <Link key={item.to} to={item.to}
                 className={`flex items-center gap-3 rounded-xl px-3 py-3 text-sm font-medium transition-colors border ${
@@ -107,8 +113,10 @@ export function AppShell() {
               >
                 <span className={isActive ? 'text-sky-400' : 'text-slate-500'}>{item.icon}</span>
                 {item.label}
-                {item.to === '/league' && <span className="ml-auto rounded-full bg-purple-500/20 border border-purple-500/30 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-purple-300">New</span>}
-                {isActive && item.to !== '/league' && <span className="ml-auto h-1.5 w-1.5 rounded-full bg-sky-400" />}
+                {item.badge && (
+                  <span className="ml-auto rounded-full bg-purple-500/20 border border-purple-500/30 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-purple-300">{item.badge}</span>
+                )}
+                {isActive && !item.badge && <span className="ml-auto h-1.5 w-1.5 rounded-full bg-sky-400" />}
               </Link>
             )
           })}
@@ -127,7 +135,7 @@ export function AppShell() {
             <button className="rounded-lg p-1.5 text-slate-300 hover:bg-slate-800 hover:text-slate-100 transition-colors md:hidden" onClick={() => setSidebarOpen(true)} aria-label="Open menu">
               <MenuIcon open={false} />
             </button>
-            <Link to={game ? `/${game.id}/tournaments` : '/select-game'} className="flex items-center gap-2">
+            <Link to={game ? `/${game.id}/tournaments` : '/'} className="flex items-center gap-2">
               <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-sky-500 text-slate-950 shadow-lg shadow-sky-500/40">
                 <span className="text-lg font-black tracking-tight">T</span>
               </div>
@@ -140,22 +148,22 @@ export function AppShell() {
 
           <div className="hidden items-center gap-1 md:flex">
             {game && (
-              <button onClick={() => navigate('/select-game')}
+              <button onClick={() => navigate('/')}
                 className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium text-slate-400 hover:bg-slate-800 hover:text-slate-200 transition-colors mr-2"
               >
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M15 18l-6-6 6-6" /></svg>
-                Games
+                Home
               </button>
             )}
             {navItems.map((item) => (
               <Link key={item.to} to={item.to}
                 className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${
-                  location.pathname === item.to || location.pathname.startsWith(item.to + '/') ? 'bg-sky-500/10 text-sky-400' : 'text-slate-300 hover:text-sky-300 hover:bg-slate-800/60'
+                  isActiveLink(item.to) ? 'bg-sky-500/10 text-sky-400' : 'text-slate-300 hover:text-sky-300 hover:bg-slate-800/60'
                 }`}
               >
                 {item.label}
-                {item.to === '/league' && (
-                  <span className="rounded-full bg-purple-500/20 border border-purple-500/30 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-purple-300">New</span>
+                {item.badge && (
+                  <span className="rounded-full bg-purple-500/20 border border-purple-500/30 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-purple-300">{item.badge}</span>
                 )}
               </Link>
             ))}
@@ -182,6 +190,7 @@ export function AppShell() {
   )
 }
 
+function HomeIcon() { return <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" /><polyline points="9 22 9 12 15 12 15 22" /></svg> }
 function GamepadIcon() { return <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="2" y="6" width="20" height="12" rx="2" /><path d="M6 12h4M8 10v4" /><circle cx="16" cy="12" r="1" fill="currentColor" /><circle cx="18" cy="10" r="1" fill="currentColor" /></svg> }
 function TrophyIcon() { return <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M8 21h8M12 17v4" /><path d="M7 4H4a1 1 0 0 0-1 1v3a4 4 0 0 0 4 4h1" /><path d="M17 4h3a1 1 0 0 1 1 1v3a4 4 0 0 1-4 4h-1" /><path d="M7 4h10v7a5 5 0 0 1-10 0V4z" /></svg> }
 function UserIcon() { return <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><circle cx="12" cy="8" r="4" /><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7" /></svg> }
