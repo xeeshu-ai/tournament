@@ -19,6 +19,8 @@ import { Rules } from './public/pages/Rules'
 import { Contact } from './public/pages/Contact'
 import { GameRules } from './public/pages/GameRules'
 import { GameContact } from './public/pages/GameContact'
+import { League } from './public/pages/League'
+import { LeagueTournamentPage } from './public/pages/LeagueTournamentPage'
 
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
@@ -45,6 +47,8 @@ ReactDOM.createRoot(document.getElementById('root')).render(
             <Route path="/select-game" element={<GameSelector />} />
             <Route path="/rules"       element={<Rules />} />
             <Route path="/contact"     element={<Contact />} />
+            <Route path="/league"               element={<League />} />
+            <Route path="/league/:tournamentId" element={<LeagueTournamentPage />} />
           </Route>
 
           {/* ── Protected: game-scoped shell ── */}
