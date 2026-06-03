@@ -43,6 +43,7 @@ export function AppShell() {
       ]
     : [
         { to: '/select-game', label: 'Games',   icon: <GamepadIcon /> },
+        { to: '/league',      label: 'League',  icon: <LeagueIcon /> },
         { to: '/rules',       label: 'Rules',   icon: <ShieldIcon /> },
         { to: '/contact',     label: 'Contact', icon: <MailIcon /> },
       ]
@@ -97,7 +98,7 @@ export function AppShell() {
             </button>
           )}
           {navItems.map((item) => {
-            const isActive = location.pathname === item.to
+            const isActive = location.pathname === item.to || location.pathname.startsWith(item.to + '/')
             return (
               <Link key={item.to} to={item.to}
                 className={`flex items-center gap-3 rounded-xl px-3 py-3 text-sm font-medium transition-colors border ${
@@ -106,7 +107,8 @@ export function AppShell() {
               >
                 <span className={isActive ? 'text-sky-400' : 'text-slate-500'}>{item.icon}</span>
                 {item.label}
-                {isActive && <span className="ml-auto h-1.5 w-1.5 rounded-full bg-sky-400" />}
+                {item.to === '/league' && <span className="ml-auto rounded-full bg-purple-500/20 border border-purple-500/30 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-purple-300">New</span>}
+                {isActive && item.to !== '/league' && <span className="ml-auto h-1.5 w-1.5 rounded-full bg-sky-400" />}
               </Link>
             )
           })}
@@ -147,10 +149,15 @@ export function AppShell() {
             )}
             {navItems.map((item) => (
               <Link key={item.to} to={item.to}
-                className={`rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${
-                  location.pathname === item.to ? 'bg-sky-500/10 text-sky-400' : 'text-slate-300 hover:text-sky-300 hover:bg-slate-800/60'
+                className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${
+                  location.pathname === item.to || location.pathname.startsWith(item.to + '/') ? 'bg-sky-500/10 text-sky-400' : 'text-slate-300 hover:text-sky-300 hover:bg-slate-800/60'
                 }`}
-              >{item.label}</Link>
+              >
+                {item.label}
+                {item.to === '/league' && (
+                  <span className="rounded-full bg-purple-500/20 border border-purple-500/30 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-purple-300">New</span>
+                )}
+              </Link>
             ))}
           </div>
 
@@ -180,3 +187,4 @@ function TrophyIcon() { return <svg width="16" height="16" viewBox="0 0 24 24" f
 function UserIcon() { return <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><circle cx="12" cy="8" r="4" /><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7" /></svg> }
 function ShieldIcon() { return <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" /></svg> }
 function MailIcon() { return <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="2" y="4" width="20" height="16" rx="2" /><polyline points="2 4 12 13 22 4" /></svg> }
+function LeagueIcon() { return <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" /></svg> }
