@@ -8,6 +8,7 @@ import { AuthGuard } from './lib/AuthGuard'
 import { AppShell } from './public/AppShell'
 
 // Pages
+import { Home } from './public/pages/Home'
 import { Login } from './public/pages/Login'
 import { ProfileSetup } from './public/pages/ProfileSetup'
 import { GameSelector } from './public/pages/GameSelector'
@@ -44,6 +45,8 @@ ReactDOM.createRoot(document.getElementById('root')).render(
               <AppShell />
             </AuthGuard>
           }>
+            {/* ── Root: Home page with LeagueBanner ── */}
+            <Route path="/" element={<Home />} />
             <Route path="/select-game" element={<GameSelector />} />
             <Route path="/rules"       element={<Rules />} />
             <Route path="/contact"     element={<Contact />} />
@@ -69,13 +72,10 @@ ReactDOM.createRoot(document.getElementById('root')).render(
             <Route path="contact"         element={<GameContact />} />
           </Route>
 
-          {/* ── Root: redirect to select-game (AuthGuard handles unauth) ── */}
-          <Route path="/" element={<Navigate to="/select-game" replace />} />
-
           {/* ── Legacy + 404 ── */}
           <Route path="/tournaments" element={<Navigate to="/select-game" replace />} />
           <Route path="/profile"     element={<Navigate to="/select-game" replace />} />
-          <Route path="*"            element={<Navigate to="/select-game" replace />} />
+          <Route path="*"            element={<Navigate to="/" replace />} />
 
         </Routes>
       </PlayerProvider>
