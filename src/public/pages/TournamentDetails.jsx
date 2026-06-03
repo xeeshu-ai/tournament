@@ -425,84 +425,195 @@ function RoomCodeCard({ tournamentId }) {
 }
 
 // ─── Long Tournament Panel ────────────────────────────────────────────────────
-function LongTournamentPanel({ tournamentId, myReg }) {
+function LongTournamentPanel({ tournamentId, myReg, totalRounds }) {
   const [bracket, setBracket] = React.useState(null)
   const [matches, setMatches] = React.useState(null)
   const [myMatch, setMyMatch] = React.useState(null)
-  const [myTeamNo, setMyTeamNo] = React.useState(null)
+  const [mySlot, setMySlot] = React.useState(null)
   const [roomCode, setRoomCode] = React.useState(undefined)
   const [matchScores, setMatchScores] = React.useState(null)
   const [roundOverview, setRoundOverview] = React.useState(null)
+  // Multi-round history: { [round_number]: { match, scores } }
+  const [roundHistory, setRoundHistory] = React.useState({})
+  // Overall leaderboard across all rounds
+  const [leaderboard, setLeaderboard] = React.useState(null)
   const [loading, setLoading] = React.useState(true)
   const [lastUpdated, setLastUpdated] = React.useState(null)
+  const [historyOpen, setHistoryOpen] = React.useState(false)
+  const [leaderboardOpen, setLeaderboardOpen] = React.useState(false)
+  const [eliminated, setEliminated] = React.useState(false)
 
   async function loadAll() {
+    // 1. Load bracket
     const { data: bkt } = await supabasePlayer
       .from('long_brackets')
-      .select('id, current_round, status')
+      .select('id, current_round')
       .eq('tournament_id', tournamentId)
       .maybeSingle()
 
     if (!bkt) { setLoading(false); setLastUpdated(new Date()); return }
     setBracket(bkt)
 
+    // 2. Load all matches for current round
     const { data: allMatches } = await supabasePlayer
       .from('long_br_matches')
-      .select('id, match_number, round_number, status, start_time')
+      .select('id, match_number, round_number, status')
       .eq('bracket_id', bkt.id)
       .eq('round_number', bkt.current_round)
       .order('match_number', { ascending: true })
 
     setMatches(allMatches || [])
 
+    // 3. Find my match using long_br_match_scores (team_name lookup)
+    // Derive slot from insertion order (position in scores for this match)
+    let foundMatch = null
+    let foundSlot = null
+
     if (allMatches?.length && myReg?.team_name) {
       const matchIds = allMatches.map(m => m.id)
-      const { data: teamRows } = await supabasePlayer
-        .from('long_br_match_teams')
-        .select('match_id, team_name, team_number')
+
+      // Pull all score rows for current round matches to find my team
+      const { data: allScoreRows } = await supabasePlayer
+        .from('long_br_match_scores')
+        .select('id, match_id, team_name, kills, position, points, player_names, created_at')
         .in('match_id', matchIds)
-        .eq('team_name', myReg.team_name)
-        .maybeSingle()
+        .order('created_at', { ascending: true })
 
-      if (teamRows) {
-        const found = allMatches.find(m => m.id === teamRows.match_id)
-        setMyMatch(found || null)
-        setMyTeamNo(teamRows.team_number)
+      if (allScoreRows?.length) {
+        // Build round overview by match (all teams)
+        const byMatch = {}
+        for (const s of allScoreRows) {
+          if (!byMatch[s.match_id]) byMatch[s.match_id] = []
+          byMatch[s.match_id].push(s)
+        }
+        setRoundOverview(byMatch)
 
-        const { data: rc } = await supabasePlayer
-          .from('long_match_room_codes')
-          .select('room_id, room_password, is_revealed')
-          .eq('match_id', teamRows.match_id)
-          .maybeSingle()
-        setRoomCode(rc || null)
-
-        if (found?.status === 'ended') {
-          const { data: scores } = await supabasePlayer
-            .from('long_br_match_scores')
-            .select('team_name, kills, position, points, player_names')
-            .eq('match_id', found.id)
-            .order('points', { ascending: false })
-          setMatchScores(scores || [])
+        // Find my team's score row
+        const myScoreRow = allScoreRows.find(s => s.team_name === myReg.team_name)
+        if (myScoreRow) {
+          foundMatch = allMatches.find(m => m.id === myScoreRow.match_id) || null
+          // Slot = 1-based index of my team among teams in this match (insertion order)
+          const teamsInMyMatch = byMatch[myScoreRow.match_id] || []
+          const slotIdx = teamsInMyMatch.findIndex(s => s.team_name === myReg.team_name)
+          foundSlot = slotIdx >= 0 ? slotIdx + 1 : null
         }
       } else {
-        setMyMatch(null)
+        // No scores yet — build overview from matches only (no teams known yet)
+        const byMatch = {}
+        for (const m of allMatches) { byMatch[m.id] = [] }
+        setRoundOverview(byMatch)
+      }
+    } else if (allMatches?.length) {
+      const matchIds = allMatches.map(m => m.id)
+      const { data: allScoreRows } = await supabasePlayer
+        .from('long_br_match_scores')
+        .select('match_id, team_name, created_at')
+        .in('match_id', matchIds)
+        .order('created_at', { ascending: true })
+
+      const byMatch = {}
+      for (const m of allMatches) { byMatch[m.id] = [] }
+      for (const s of (allScoreRows || [])) {
+        if (!byMatch[s.match_id]) byMatch[s.match_id] = []
+        byMatch[s.match_id].push(s)
+      }
+      setRoundOverview(byMatch)
+    }
+
+    setMyMatch(foundMatch)
+    setMySlot(foundSlot)
+
+    // 4. Room code for my match (per-match room codes via long_br_matches.id)
+    if (foundMatch) {
+      const { data: rc } = await supabasePlayer
+        .from('room_codes')
+        .select('room_id, room_password, is_revealed')
+        .eq('tournament_id', tournamentId)
+        .eq('match_id', foundMatch.id)
+        .maybeSingle()
+      setRoomCode(rc || null)
+
+      // 5. Results for my match if ended
+      if (foundMatch.status === 'ended') {
+        const { data: scores } = await supabasePlayer
+          .from('long_br_match_scores')
+          .select('team_name, kills, position, points, player_names')
+          .eq('match_id', foundMatch.id)
+          .order('points', { ascending: false })
+        setMatchScores(scores || [])
+      } else {
+        setMatchScores(null)
+      }
+    } else {
+      setRoomCode(undefined)
+      setMatchScores(null)
+    }
+
+    // 6. Elimination check: if current round > 1 and team has no match this round
+    //    and tournament is still ongoing → eliminated
+    if (bkt.current_round > 1 && !foundMatch && myReg?.team_name) {
+      setEliminated(true)
+    } else {
+      setEliminated(false)
+    }
+
+    // 7. Load round history (all past rounds)
+    if (bkt.current_round > 1 && myReg?.team_name) {
+      const { data: pastMatches } = await supabasePlayer
+        .from('long_br_matches')
+        .select('id, match_number, round_number, status')
+        .eq('bracket_id', bkt.id)
+        .lt('round_number', bkt.current_round)
+        .order('round_number', { ascending: true })
+
+      if (pastMatches?.length) {
+        const pastIds = pastMatches.map(m => m.id)
+        const { data: pastScores } = await supabasePlayer
+          .from('long_br_match_scores')
+          .select('match_id, team_name, kills, position, points, player_names, created_at')
+          .in('match_id', pastIds)
+          .order('points', { ascending: false })
+
+        const history = {}
+        for (const pm of pastMatches) {
+          const myPastScore = (pastScores || []).find(
+            s => s.match_id === pm.id && s.team_name === myReg.team_name
+          )
+          if (myPastScore) {
+            if (!history[pm.round_number]) history[pm.round_number] = []
+            const allInMatch = (pastScores || []).filter(s => s.match_id === pm.id)
+            history[pm.round_number].push({ match: pm, myScore: myPastScore, allScores: allInMatch })
+          }
+        }
+        setRoundHistory(history)
       }
     }
 
-    if (allMatches?.length) {
-      const matchIds = allMatches.map(m => m.id)
-      const { data: allTeams } = await supabasePlayer
-        .from('long_br_match_teams')
-        .select('match_id, team_name, team_number')
-        .in('match_id', matchIds)
-        .order('team_number', { ascending: true })
+    // 8. Leaderboard: cumulative points across ALL ended matches
+    const { data: allEndedMatches } = await supabasePlayer
+      .from('long_br_matches')
+      .select('id, round_number, status')
+      .eq('bracket_id', bkt.id)
+      .eq('status', 'ended')
 
-      const byMatch = {}
-      for (const t of (allTeams || [])) {
-        if (!byMatch[t.match_id]) byMatch[t.match_id] = []
-        byMatch[t.match_id].push(t)
+    if (allEndedMatches?.length) {
+      const endedIds = allEndedMatches.map(m => m.id)
+      const { data: allScores } = await supabasePlayer
+        .from('long_br_match_scores')
+        .select('team_name, kills, position, points')
+        .in('match_id', endedIds)
+
+      if (allScores?.length) {
+        const tally = {}
+        for (const s of allScores) {
+          if (!tally[s.team_name]) tally[s.team_name] = { team_name: s.team_name, total_points: 0, total_kills: 0, matches_played: 0 }
+          tally[s.team_name].total_points += (typeof s.points === 'number' ? s.points : 0)
+          tally[s.team_name].total_kills += (typeof s.kills === 'number' ? s.kills : 0)
+          tally[s.team_name].matches_played += 1
+        }
+        const sorted = Object.values(tally).sort((a, b) => b.total_points - a.total_points)
+        setLeaderboard(sorted)
       }
-      setRoundOverview(byMatch)
     }
 
     setLoading(false)
@@ -515,6 +626,7 @@ function LongTournamentPanel({ tournamentId, myReg }) {
     return () => clearInterval(interval)
   }, [tournamentId, myReg?.team_name])
 
+  // ── Loading state ──
   if (loading) {
     return (
       <div className="card flex items-center gap-3 py-5 text-xs text-slate-400">
@@ -524,6 +636,7 @@ function LongTournamentPanel({ tournamentId, myReg }) {
     )
   }
 
+  // ── No bracket yet ──
   if (!bracket) {
     return (
       <div className="card space-y-2 border border-slate-700/60 bg-slate-900/40">
@@ -536,28 +649,57 @@ function LongTournamentPanel({ tournamentId, myReg }) {
     )
   }
 
-  if (!myMatch) {
-    return (
-      <div className="card space-y-2 border border-amber-700/30 bg-amber-500/5">
-        <p className="text-xs font-semibold text-amber-300">📋 Round {bracket.current_round} — Match Pending</p>
-        <p className="text-[11px] text-slate-400">Your team hasn't been assigned to a match yet. Check back in a moment.</p>
-        <p className="text-[10px] text-slate-500">Auto-refreshing every 20 seconds.</p>
-      </div>
-    )
-  }
-
+  const roundLabel = totalRounds ? `Round ${bracket.current_round} of ${totalRounds}` : `Round ${bracket.current_round}`
   const totalMatches = matches?.length || 0
-  const completedBefore = matches?.filter(m => m.match_number < myMatch.match_number && m.status === 'ended').length || 0
-  const matchesBeforeMe = myMatch.match_number - 1
+  const completedBefore = matches?.filter(m => m.match_number < (myMatch?.match_number ?? 0) && m.status === 'ended').length || 0
+  const matchesBeforeMe = myMatch ? myMatch.match_number - 1 : 0
   const waitingFor = matchesBeforeMe - completedBefore
-  const isMyMatchLive = myMatch.status === 'live'
-  const isMyMatchEnded = myMatch.status === 'ended'
-  const isMyMatchWaiting = !isMyMatchLive && !isMyMatchEnded
+  const isMyMatchLive = myMatch?.status === 'live'
+  const isMyMatchEnded = myMatch?.status === 'ended'
+  const isMyMatchWaiting = myMatch && !isMyMatchLive && !isMyMatchEnded
   const isNextUp = isMyMatchWaiting && waitingFor === 0 && matchesBeforeMe > 0
 
   return (
     <div className="space-y-3">
-      {/* "You're up next" alert */}
+
+      {/* ── Round pill header ── */}
+      <div className="flex items-center justify-between gap-2 px-1">
+        <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wide">
+          ⚔️ {roundLabel}
+        </span>
+        {lastUpdated && (
+          <span className="text-[10px] text-slate-600">
+            Updated {lastUpdated.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true })}
+          </span>
+        )}
+      </div>
+
+      {/* ── Eliminated state ── */}
+      {eliminated && (
+        <div className="card border border-red-800/40 bg-red-500/5 space-y-2">
+          <div className="flex items-center gap-2">
+            <span className="text-base">🚫</span>
+            <p className="text-xs font-bold text-red-400">You have been eliminated</p>
+          </div>
+          <p className="text-[11px] text-slate-400 leading-relaxed">
+            Your team <span className="font-semibold text-slate-200">{myReg?.team_name}</span> did not advance to {roundLabel}. Better luck next time!
+          </p>
+          {Object.keys(roundHistory).length > 0 && (
+            <p className="text-[10px] text-slate-500">You can still view your match history below.</p>
+          )}
+        </div>
+      )}
+
+      {/* ── No match assigned yet (but not eliminated) ── */}
+      {!eliminated && !myMatch && (
+        <div className="card space-y-2 border border-amber-700/30 bg-amber-500/5">
+          <p className="text-xs font-semibold text-amber-300">📋 {roundLabel} — Match Pending</p>
+          <p className="text-[11px] text-slate-400">Your team hasn't been assigned to a match yet. Check back in a moment.</p>
+          <p className="text-[10px] text-slate-500">Auto-refreshing every 20 seconds.</p>
+        </div>
+      )}
+
+      {/* ── "You're up next" alert ── */}
       {isNextUp && (
         <div className="rounded-xl border border-amber-500/50 bg-amber-500/10 px-4 py-3 flex items-center gap-3">
           <span className="text-xl shrink-0">⚡</span>
@@ -568,158 +710,153 @@ function LongTournamentPanel({ tournamentId, myReg }) {
         </div>
       )}
 
-      {/* My Match Card */}
-      <div className={`card space-y-3 border ${
-        isMyMatchLive ? 'border-emerald-700/50 bg-emerald-500/5' :
-        isMyMatchEnded ? 'border-red-800/30 bg-red-500/5' :
-        isNextUp ? 'border-amber-700/50 bg-amber-500/5' :
-        'border-sky-800/40 bg-sky-500/5'
-      }`}>
-        <div className="flex items-center justify-between gap-2">
-          <div className="flex items-center gap-2">
-            <span className="text-base">{isMyMatchLive ? '🟢' : isMyMatchEnded ? '🏁' : isNextUp ? '⚡' : '🕐'}</span>
-            <div>
-              <p className="text-xs font-bold text-slate-100">
-                Round {bracket.current_round} — Match #{myMatch.match_number}
-              </p>
-              <p className="text-[11px] text-slate-400">
-                {isMyMatchLive ? 'Your match is LIVE' :
-                 isMyMatchEnded ? 'Your match has ended' :
-                 isNextUp ? 'You are up next' :
-                 waitingFor > 0 ? `Waiting for ${waitingFor} match${waitingFor !== 1 ? 'es' : ''} before yours` :
-                 'Your match starts next'}
-              </p>
-            </div>
-          </div>
-          <span className={`text-[10px] px-2 py-0.5 rounded-full font-semibold uppercase tracking-wide shrink-0 ${
-            isMyMatchLive ? 'bg-emerald-600/20 text-emerald-300' :
-            isMyMatchEnded ? 'bg-red-600/20 text-red-400' :
-            isNextUp ? 'bg-amber-600/20 text-amber-300' :
-            'bg-sky-800/30 text-sky-400'
-          }`}>
-            {isMyMatchLive ? 'Live' : isMyMatchEnded ? 'Ended' : isNextUp ? 'Up Next' : 'Upcoming'}
-          </span>
-        </div>
-
-        {/* Slot info */}
-        {myTeamNo != null && (
-          <div className="rounded-lg bg-slate-900/60 ring-1 ring-white/10 px-3 py-2.5 flex items-center gap-3">
-            <div className="w-8 h-8 rounded-lg bg-amber-500/20 ring-1 ring-amber-600/40 flex items-center justify-center text-sm font-bold text-amber-300 shrink-0 tabular-nums">
-              {myTeamNo}
-            </div>
-            <div>
-              <p className="text-[10px] uppercase tracking-wide text-slate-500">Your Team Slot</p>
-              <p className="text-xs font-semibold text-slate-200">
-                {myReg.team_name} · Slot #{myTeamNo}
-              </p>
-              <p className="text-[11px] text-slate-400">
-                Enter <span className="font-semibold text-amber-300">slot {myTeamNo}</span> when joining the custom room
-              </p>
-            </div>
-          </div>
-        )}
-
-        {/* Match queue progress bar */}
-        {isMyMatchWaiting && totalMatches > 1 && (
-          <div className="space-y-1.5">
-            <div className="flex justify-between text-[10px] text-slate-500">
-              <span>Match queue progress</span>
-              <span className="tabular-nums">{completedBefore}/{matchesBeforeMe} before yours</span>
-            </div>
-            <div className="h-1.5 rounded-full bg-slate-800 overflow-hidden">
-              <div
-                className="h-full rounded-full bg-amber-500 transition-all duration-500"
-                style={{ width: matchesBeforeMe > 0 ? `${(completedBefore / matchesBeforeMe) * 100}%` : '0%' }}
-              />
-            </div>
-          </div>
-        )}
-
-        {/* Room code for this match */}
-        {isMyMatchLive && roomCode === undefined && (
-          <p className="text-[11px] text-slate-500 animate-pulse">Loading room details…</p>
-        )}
-        {isMyMatchLive && roomCode === null && (
-          <div className="rounded-lg bg-amber-500/5 ring-1 ring-amber-700/40 px-3 py-2.5 text-[11px] text-amber-300">
-            Room details not posted yet — page refreshes automatically.
-          </div>
-        )}
-        {isMyMatchLive && roomCode && !roomCode.is_revealed && (
-          <div className="rounded-lg bg-amber-500/5 ring-1 ring-amber-700/40 px-3 py-2.5 text-[11px] text-amber-300">
-            Room code is ready but not yet revealed. Stay on this page — it will appear automatically.
-          </div>
-        )}
-        {isMyMatchLive && roomCode?.is_revealed && (
-          <div className="rounded-xl bg-slate-950/50 ring-1 ring-emerald-700/40 p-3 space-y-3">
-            <p className="text-[10px] uppercase tracking-wide text-emerald-400 font-semibold">🎮 Room Details — Match #{myMatch.match_number}</p>
-            <div className="flex items-center justify-between gap-3">
+      {/* ── My Match Card ── */}
+      {myMatch && (
+        <div className={`card space-y-3 border ${
+          isMyMatchLive ? 'border-emerald-700/50 bg-emerald-500/5' :
+          isMyMatchEnded ? 'border-red-800/30 bg-red-500/5' :
+          isNextUp ? 'border-amber-700/50 bg-amber-500/5' :
+          'border-sky-800/40 bg-sky-500/5'
+        }`}>
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <span className="text-base">{isMyMatchLive ? '🟢' : isMyMatchEnded ? '🏁' : isNextUp ? '⚡' : '🕐'}</span>
               <div>
-                <p className="text-[10px] uppercase tracking-wide text-slate-500">Room ID</p>
-                <span className="font-mono text-sm font-bold text-slate-50 tracking-wider select-all">{roomCode.room_id}</span>
+                <p className="text-xs font-bold text-slate-100">
+                  {roundLabel} — Match #{myMatch.match_number}
+                </p>
+                <p className="text-[11px] text-slate-400">
+                  {isMyMatchLive ? 'Your match is LIVE' :
+                   isMyMatchEnded ? 'Your match has ended' :
+                   isNextUp ? 'You are up next' :
+                   waitingFor > 0 ? `Waiting for ${waitingFor} match${waitingFor !== 1 ? 'es' : ''} before yours` :
+                   'Your match starts next'}
+                </p>
               </div>
-              <button type="button" className="btn-secondary text-[11px] px-3 py-1.5" onClick={() => navigator.clipboard.writeText(roomCode.room_id || '')}>Copy</button>
             </div>
-            <div className="flex items-center justify-between gap-3">
-              <div>
-                <p className="text-[10px] uppercase tracking-wide text-slate-500">Password</p>
-                <span className="font-mono text-sm font-bold text-slate-50 tracking-wider select-all">{roomCode.room_password}</span>
-              </div>
-              <button type="button" className="btn-secondary text-[11px] px-3 py-1.5" onClick={() => navigator.clipboard.writeText(roomCode.room_password || '')}>Copy</button>
-            </div>
+            <span className={`text-[10px] px-2 py-0.5 rounded-full font-semibold uppercase tracking-wide shrink-0 ${
+              isMyMatchLive ? 'bg-emerald-600/20 text-emerald-300' :
+              isMyMatchEnded ? 'bg-red-600/20 text-red-400' :
+              isNextUp ? 'bg-amber-600/20 text-amber-300' :
+              'bg-sky-800/30 text-sky-400'
+            }`}>
+              {isMyMatchLive ? 'Live' : isMyMatchEnded ? 'Ended' : isNextUp ? 'Up Next' : 'Upcoming'}
+            </span>
           </div>
-        )}
 
-        {/* Results for this match */}
-        {isMyMatchEnded && matchScores && matchScores.length > 0 && (
-          <div className="space-y-2">
-            <p className="text-[10px] uppercase tracking-wide text-slate-500 font-semibold">Match #{myMatch.match_number} Results</p>
-            <div className="overflow-x-auto">
-              <table className="w-full text-xs">
-                <thead>
-                  <tr className="border-b border-slate-700 text-[10px] uppercase tracking-wide text-slate-500">
-                    <th className="pb-1.5 text-left w-6">#</th>
-                    <th className="pb-1.5 text-left">Team</th>
-                    <th className="pb-1.5 text-center">K</th>
-                    <th className="pb-1.5 text-center">Pos</th>
-                    <th className="pb-1.5 text-right">Pts</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-800/60">
-                  {matchScores.map((row, i) => (
-                    <tr key={row.team_name + i} className={`${i === 0 ? 'bg-amber-500/8' : ''} ${row.team_name === myReg?.team_name ? 'ring-1 ring-sky-700/40 bg-sky-500/5' : ''}`}>
-                      <td className="py-1.5 pr-1">
-                        {i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : <span className="text-slate-500">{i + 1}</span>}
-                      </td>
-                      <td className={`py-1.5 font-semibold ${i === 0 ? 'text-amber-300' : row.team_name === myReg?.team_name ? 'text-sky-300' : 'text-slate-100'}`}>
-                        {row.team_name}
-                        {row.team_name === myReg?.team_name && <span className="ml-1 text-[9px] text-sky-400 font-semibold uppercase tracking-wide">you</span>}
-                      </td>
-                      <td className="py-1.5 text-center text-slate-300">{row.kills}</td>
-                      <td className="py-1.5 text-center text-slate-300">#{row.position}</td>
-                      <td className={`py-1.5 text-right font-bold tabular-nums ${i === 0 ? 'text-amber-300' : 'text-sky-300'}`}>
-                        {typeof row.points === 'number' ? row.points.toFixed(1) : row.points}
-                      </td>
+          {/* Slot info */}
+          {mySlot != null && (
+            <div className="rounded-lg bg-slate-900/60 ring-1 ring-white/10 px-3 py-2.5 flex items-center gap-3">
+              <div className="w-8 h-8 rounded-lg bg-amber-500/20 ring-1 ring-amber-600/40 flex items-center justify-center text-sm font-bold text-amber-300 shrink-0 tabular-nums">
+                {mySlot}
+              </div>
+              <div>
+                <p className="text-[10px] uppercase tracking-wide text-slate-500">Your Team Slot</p>
+                <p className="text-xs font-semibold text-slate-200">
+                  {myReg?.team_name} · Slot #{mySlot}
+                </p>
+                <p className="text-[11px] text-slate-400">
+                  Enter <span className="font-semibold text-amber-300">slot {mySlot}</span> when joining the custom room
+                </p>
+              </div>
+            </div>
+          )}
+
+          {/* Match queue progress bar */}
+          {isMyMatchWaiting && totalMatches > 1 && (
+            <div className="space-y-1.5">
+              <div className="flex justify-between text-[10px] text-slate-500">
+                <span>Match queue progress</span>
+                <span className="tabular-nums">{completedBefore}/{matchesBeforeMe} before yours</span>
+              </div>
+              <div className="h-1.5 rounded-full bg-slate-800 overflow-hidden">
+                <div
+                  className="h-full rounded-full bg-amber-500 transition-all duration-500"
+                  style={{ width: matchesBeforeMe > 0 ? `${(completedBefore / matchesBeforeMe) * 100}%` : '0%' }}
+                />
+              </div>
+            </div>
+          )}
+
+          {/* Room code for this match */}
+          {isMyMatchLive && roomCode === undefined && (
+            <p className="text-[11px] text-slate-500 animate-pulse">Loading room details…</p>
+          )}
+          {isMyMatchLive && roomCode === null && (
+            <div className="rounded-lg bg-amber-500/5 ring-1 ring-amber-700/40 px-3 py-2.5 text-[11px] text-amber-300">
+              Room details not posted yet — page refreshes automatically.
+            </div>
+          )}
+          {isMyMatchLive && roomCode && !roomCode.is_revealed && (
+            <div className="rounded-lg bg-amber-500/5 ring-1 ring-amber-700/40 px-3 py-2.5 text-[11px] text-amber-300">
+              Room code is ready but not yet revealed. Stay on this page — it will appear automatically.
+            </div>
+          )}
+          {isMyMatchLive && roomCode?.is_revealed && (
+            <div className="rounded-xl bg-slate-950/50 ring-1 ring-emerald-700/40 p-3 space-y-3">
+              <p className="text-[10px] uppercase tracking-wide text-emerald-400 font-semibold">🎮 Room Details — Match #{myMatch.match_number}</p>
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-[10px] uppercase tracking-wide text-slate-500">Room ID</p>
+                  <span className="font-mono text-sm font-bold text-slate-50 tracking-wider select-all">{roomCode.room_id}</span>
+                </div>
+                <button type="button" className="btn-secondary text-[11px] px-3 py-1.5" onClick={() => navigator.clipboard.writeText(roomCode.room_id || '')}>Copy</button>
+              </div>
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-[10px] uppercase tracking-wide text-slate-500">Password</p>
+                  <span className="font-mono text-sm font-bold text-slate-50 tracking-wider select-all">{roomCode.room_password}</span>
+                </div>
+                <button type="button" className="btn-secondary text-[11px] px-3 py-1.5" onClick={() => navigator.clipboard.writeText(roomCode.room_password || '')}>Copy</button>
+              </div>
+            </div>
+          )}
+
+          {/* Results for this match */}
+          {isMyMatchEnded && matchScores && matchScores.length > 0 && (
+            <div className="space-y-2">
+              <p className="text-[10px] uppercase tracking-wide text-slate-500 font-semibold">Match #{myMatch.match_number} Results</p>
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="border-b border-slate-700 text-[10px] uppercase tracking-wide text-slate-500">
+                      <th className="pb-1.5 text-left w-6">#</th>
+                      <th className="pb-1.5 text-left">Team</th>
+                      <th className="pb-1.5 text-center">K</th>
+                      <th className="pb-1.5 text-center">Pos</th>
+                      <th className="pb-1.5 text-right">Pts</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody className="divide-y divide-slate-800/60">
+                    {matchScores.map((row, i) => (
+                      <tr key={row.team_name + i} className={`${i === 0 ? 'bg-amber-500/8' : ''} ${row.team_name === myReg?.team_name ? 'ring-1 ring-sky-700/40 bg-sky-500/5' : ''}`}>
+                        <td className="py-1.5 pr-1">
+                          {i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : <span className="text-slate-500">{i + 1}</span>}
+                        </td>
+                        <td className={`py-1.5 font-semibold ${i === 0 ? 'text-amber-300' : row.team_name === myReg?.team_name ? 'text-sky-300' : 'text-slate-100'}`}>
+                          {row.team_name}
+                          {row.team_name === myReg?.team_name && <span className="ml-1 text-[9px] text-sky-400 font-semibold uppercase tracking-wide">you</span>}
+                        </td>
+                        <td className="py-1.5 text-center text-slate-300">{row.kills}</td>
+                        <td className="py-1.5 text-center text-slate-300">#{row.position}</td>
+                        <td className={`py-1.5 text-right font-bold tabular-nums ${i === 0 ? 'text-amber-300' : 'text-sky-300'}`}>
+                          {typeof row.points === 'number' ? row.points.toFixed(1) : row.points}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             </div>
-          </div>
-        )}
+          )}
+        </div>
+      )}
 
-        {/* Last updated */}
-        {lastUpdated && (
-          <p className="text-[10px] text-slate-600 text-right">
-            Updated {lastUpdated.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true })}
-          </p>
-        )}
-      </div>
-
-      {/* Round Overview */}
+      {/* ── Round Overview ── */}
       {matches && matches.length > 0 && (
         <section className="card space-y-3">
           <div className="flex items-center justify-between gap-2">
-            <p className="text-xs font-semibold text-slate-300">📊 Round {bracket.current_round} Overview</p>
+            <p className="text-xs font-semibold text-slate-300">📊 {roundLabel} — All Matches</p>
             <span className="text-[10px] rounded-full bg-slate-800 text-slate-400 px-2 py-0.5 font-semibold tabular-nums">
               {matches.length} match{matches.length !== 1 ? 'es' : ''}
             </span>
@@ -755,16 +892,15 @@ function LongTournamentPanel({ tournamentId, myReg }) {
 
                   {teams.length > 0 && (
                     <div className="flex flex-wrap gap-1.5">
-                      {teams.map((t) => (
+                      {teams.map((t, ti) => (
                         <span
-                          key={t.team_number}
+                          key={t.team_name + ti}
                           className={`inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-[10px] font-medium ring-1 ${
                             t.team_name === myReg?.team_name
                               ? 'bg-sky-500/15 ring-sky-700/50 text-sky-300'
                               : 'bg-slate-800/60 ring-slate-700/40 text-slate-400'
                           }`}
                         >
-                          <span className="tabular-nums text-slate-500">#{t.team_number}</span>
                           <span className="truncate max-w-[80px]">{t.team_name}</span>
                         </span>
                       ))}
@@ -776,6 +912,143 @@ function LongTournamentPanel({ tournamentId, myReg }) {
           </div>
         </section>
       )}
+
+      {/* ── Leaderboard (cumulative across all ended matches) ── */}
+      {leaderboard && leaderboard.length > 0 && (
+        <section className="card space-y-3">
+          <button
+            type="button"
+            className="w-full flex items-center justify-between gap-2"
+            onClick={() => setLeaderboardOpen(o => !o)}
+          >
+            <p className="text-xs font-semibold text-slate-300">🏅 Overall Standings</p>
+            <div className="flex items-center gap-2">
+              <span className="text-[10px] rounded-full bg-slate-800 text-slate-400 px-2 py-0.5 font-semibold tabular-nums">
+                {leaderboard.length} teams
+              </span>
+              <svg className={`w-3.5 h-3.5 text-slate-500 transition-transform ${leaderboardOpen ? 'rotate-180' : ''}`}
+                viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M6 9l6 6 6-6" />
+              </svg>
+            </div>
+          </button>
+
+          {leaderboardOpen && (
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="border-b border-slate-700 text-[10px] uppercase tracking-wide text-slate-500">
+                    <th className="pb-1.5 text-left w-6">#</th>
+                    <th className="pb-1.5 text-left">Team</th>
+                    <th className="pb-1.5 text-center">Played</th>
+                    <th className="pb-1.5 text-center">Kills</th>
+                    <th className="pb-1.5 text-right">Pts</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-800/60">
+                  {leaderboard.map((row, i) => (
+                    <tr
+                      key={row.team_name + i}
+                      className={`${i === 0 ? 'bg-amber-500/8' : ''} ${row.team_name === myReg?.team_name ? 'ring-1 ring-sky-700/40 bg-sky-500/5' : ''}`}
+                    >
+                      <td className="py-1.5 pr-1">
+                        {i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : <span className="text-slate-500">{i + 1}</span>}
+                      </td>
+                      <td className={`py-1.5 font-semibold ${i === 0 ? 'text-amber-300' : row.team_name === myReg?.team_name ? 'text-sky-300' : 'text-slate-100'}`}>
+                        {row.team_name}
+                        {row.team_name === myReg?.team_name && (
+                          <span className="ml-1 text-[9px] text-sky-400 font-semibold uppercase tracking-wide">you</span>
+                        )}
+                      </td>
+                      <td className="py-1.5 text-center text-slate-400 tabular-nums">{row.matches_played}</td>
+                      <td className="py-1.5 text-center text-slate-400 tabular-nums">{row.total_kills}</td>
+                      <td className={`py-1.5 text-right font-bold tabular-nums ${i === 0 ? 'text-amber-300' : 'text-sky-300'}`}>
+                        {row.total_points.toFixed(1)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </section>
+      )}
+
+      {/* ── Round History (past rounds my team played) ── */}
+      {Object.keys(roundHistory).length > 0 && (
+        <section className="card space-y-3">
+          <button
+            type="button"
+            className="w-full flex items-center justify-between gap-2"
+            onClick={() => setHistoryOpen(o => !o)}
+          >
+            <p className="text-xs font-semibold text-slate-300">📜 My Match History</p>
+            <svg className={`w-3.5 h-3.5 text-slate-500 transition-transform ${historyOpen ? 'rotate-180' : ''}`}
+              viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M6 9l6 6 6-6" />
+            </svg>
+          </button>
+
+          {historyOpen && (
+            <div className="space-y-4">
+              {Object.entries(roundHistory)
+                .sort(([a], [b]) => Number(b) - Number(a))
+                .map(([roundNum, roundMatches]) => (
+                  <div key={roundNum} className="space-y-2">
+                    <p className="text-[10px] uppercase tracking-wide text-slate-500 font-semibold">Round {roundNum}</p>
+                    {roundMatches.map(({ match, myScore, allScores }) => (
+                      <div key={match.id} className="rounded-xl ring-1 ring-slate-700/50 bg-slate-900/40 overflow-hidden">
+                        <div className="flex items-center justify-between gap-2 px-3 py-2 border-b border-white/5">
+                          <span className="text-[11px] font-semibold text-slate-300">Match #{match.match_number}</span>
+                          <div className="flex items-center gap-2 text-[10px] text-slate-400">
+                            <span>Pos: <span className="font-semibold text-slate-200">#{myScore.position}</span></span>
+                            <span>Kills: <span className="font-semibold text-slate-200">{myScore.kills}</span></span>
+                            <span>Pts: <span className="font-bold text-sky-300 tabular-nums">{typeof myScore.points === 'number' ? myScore.points.toFixed(1) : myScore.points}</span></span>
+                          </div>
+                        </div>
+                        {allScores.length > 0 && (
+                          <div className="overflow-x-auto">
+                            <table className="w-full text-xs">
+                              <thead>
+                                <tr className="text-[10px] uppercase tracking-wide text-slate-600 border-b border-slate-800">
+                                  <th className="px-3 py-1.5 text-left w-6">#</th>
+                                  <th className="px-3 py-1.5 text-left">Team</th>
+                                  <th className="px-3 py-1.5 text-center">K</th>
+                                  <th className="px-3 py-1.5 text-right">Pts</th>
+                                </tr>
+                              </thead>
+                              <tbody className="divide-y divide-slate-800/40">
+                                {allScores.map((s, si) => (
+                                  <tr
+                                    key={s.team_name + si}
+                                    className={s.team_name === myReg?.team_name ? 'bg-sky-500/5' : ''}
+                                  >
+                                    <td className="px-3 py-1.5 text-slate-500 tabular-nums">{si + 1}</td>
+                                    <td className={`px-3 py-1.5 font-medium ${s.team_name === myReg?.team_name ? 'text-sky-300' : 'text-slate-300'}`}>
+                                      {s.team_name}
+                                      {s.team_name === myReg?.team_name && (
+                                        <span className="ml-1 text-[9px] text-sky-500 font-semibold uppercase">you</span>
+                                      )}
+                                    </td>
+                                    <td className="px-3 py-1.5 text-center text-slate-400">{s.kills}</td>
+                                    <td className={`px-3 py-1.5 text-right font-bold tabular-nums ${s.team_name === myReg?.team_name ? 'text-sky-300' : 'text-slate-400'}`}>
+                                      {typeof s.points === 'number' ? s.points.toFixed(1) : s.points}
+                                    </td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                ))}
+            </div>
+          )}
+        </section>
+      )}
+
     </div>
   )
 }
@@ -864,7 +1137,6 @@ export default function TournamentDetails() {
   const [myReg, setMyReg] = React.useState(undefined)
   const [registered, setRegistered] = React.useState(false)
 
-  // FIX: was tournament?.format — DB column is `type`
   const isLong = tournament?.type === 'long'
 
   async function loadTournament() {
@@ -942,16 +1214,17 @@ export default function TournamentDetails() {
         </div>
 
         <div className="flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-slate-400">
-          {/* FIX: getModeLabel needs (gameId, modeId) — was getModeLabel(tournament.mode) */}
           <span>🎮 {getModeLabel(game?.id, tournament.mode)}</span>
           {tournament.team_size && <span>👥 {teamSizeLabel(tournament.team_size)}</span>}
-          {/* FIX: DB column is prize_text, not prize_pool */}
           {tournament.prize_text && <span>🏆 {tournament.prize_text}</span>}
           {tournament.entry_fee != null && (
             <span>{tournament.entry_fee === 0 ? '🆓 Free Entry' : `💰 ₹${tournament.entry_fee} entry`}</span>
           )}
           {tournament.start_time && <span>📅 {fmtDate(tournament.start_time)}</span>}
           {tournament.max_slots && <span>🔢 {tournament.max_slots} slots</span>}
+          {isLong && tournament.total_rounds && (
+            <span>🔁 {tournament.total_rounds} Rounds</span>
+          )}
         </div>
 
         {tournament.description && (
@@ -992,7 +1265,11 @@ export default function TournamentDetails() {
 
       {/* Long tournament panel — shown after confirmed registration */}
       {isLong && myReg?.status === 'confirmed' && !isEnded && (
-        <LongTournamentPanel tournamentId={tournamentId} myReg={myReg} />
+        <LongTournamentPanel
+          tournamentId={tournamentId}
+          myReg={myReg}
+          totalRounds={tournament.total_rounds || null}
+        />
       )}
 
       {/* Single-match room code — only for non-long confirmed registrations */}
@@ -1013,7 +1290,7 @@ export default function TournamentDetails() {
           <p className="text-sm font-semibold text-emerald-300">Registration successful!</p>
           <p className="text-[11px] text-slate-400">
             {isLong
-              ? 'Once entries close and the bracket is generated, you\'ll see your match assignment here.'
+              ? "Once entries close and the bracket is generated, you'll see your match assignment here."
               : 'You will receive room details before the match starts.'}
           </p>
         </div>
