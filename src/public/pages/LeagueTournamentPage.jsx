@@ -5,6 +5,12 @@ import { usePlayer } from '../../lib/PlayerContext'
 
 // ─── helpers ────────────────────────────────────────────────────────────────
 
+function calcPoints(position, kills) {
+  const base = Math.floor((kills + 1) / position * 10)
+  const bonus = position === 1 ? 10 : position === 2 ? 6 : position === 3 ? 4 : 0
+  return base + bonus
+}
+
 function Badge({ children, color = 'slate' }) {
   const colors = {
     blue:   'bg-blue-500/15 text-blue-300 border-blue-500/30',
@@ -134,9 +140,9 @@ function RegisterSheet({ tournament, playerProfile, hostGameProfile, onClose, on
 
   const teamSize = tournament.team_size || 1
   const need = teamSize - 1
-  const allConfirmed = teammates.filter(Boolean).length === need
+  const allConfirmed = teammates.length === need
 
-  const excludeUids = [hostGameProfile?.game_uid, ...teammates.filter(Boolean).map(t => t.gameUid)].filter(Boolean)
+  const excludeUids = [hostGameProfile?.game_uid, ...teammates.map(t => t.gameUid)].filter(Boolean)
 
   function setTeammate(idx, data) {
     setTeammates(prev => {
@@ -150,7 +156,7 @@ function RegisterSheet({ tournament, playerProfile, hostGameProfile, onClose, on
     setTeammates(prev => {
       const next = [...prev]
       next[idx] = undefined
-      return next
+      return next.filter(Boolean)
     })
   }
 
@@ -173,7 +179,7 @@ function RegisterSheet({ tournament, playerProfile, hostGameProfile, onClose, on
 
       const members = [
         { registration_id: reg.id, player_id: playerProfile.id, slot: 1, game_uid: hostGameProfile.game_uid, in_game_name: hostGameProfile.in_game_name },
-        ...teammates.filter(Boolean).map((t, i) => ({
+        ...teammates.map((t, i) => ({
           registration_id: reg.id,
           player_id: t.playerId,
           slot: i + 2,
@@ -208,11 +214,13 @@ function RegisterSheet({ tournament, playerProfile, hostGameProfile, onClose, on
             <p className="text-[11px] text-slate-500 uppercase tracking-widest">Register Team</p>
             <p className="text-sm font-semibold text-slate-100 mt-0.5 truncate max-w-[240px]">{tournament.title}</p>
           </div>
-          <button onClick={onClose} className="rounded-lg p-2 text-slate-400 hover:text-slate-200 hover:bg-slate-800 transition-colors">✕</button>
+          <button onClick={onClose} className="rounded-lg p-2 text-slate-400 hover:text-slate-200 hover:bg-slate-800 transition-colors">
+            ✕
+          </button>
         </div>
 
         <div className="flex gap-1.5 px-5 pt-4">
-          {[1, 2, need > 0 ? 3 : null].filter(Boolean).map(s => (
+          {[1, 2, 3].filter(s => s <= (need > 0 ? 3 : 2)).map(s => (
             <div key={s} className={`h-1 flex-1 rounded-full transition-colors ${s <= step ? 'bg-sky-500' : 'bg-slate-700'}`} />
           ))}
         </div>
@@ -288,7 +296,7 @@ function RegisterSheet({ tournament, playerProfile, hostGameProfile, onClose, on
                   </div>
                   <Badge color="purple">Captain</Badge>
                 </div>
-                {teammates.filter(Boolean).map((t, i) => (
+                {teammates.map((t, i) => (
                   <div key={i} className="flex items-center gap-3 px-4 py-3">
                     <div className="h-7 w-7 rounded-full bg-slate-700 flex items-center justify-center text-slate-400 text-xs font-bold flex-shrink-0">
                       {t.inGameName[0]?.toUpperCase()}
@@ -464,7 +472,9 @@ function Standings({ allScores, myTeamName }) {
               const isMe = name === myTeamName
               return (
                 <tr key={name} className={`transition-colors ${isMe ? 'bg-sky-500/10' : 'hover:bg-slate-800/30'}`}>
-                  <td className="px-4 py-3 text-slate-400">{i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : i + 1}</td>
+                  <td className="px-4 py-3 text-slate-400">
+                    {i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : i + 1}
+                  </td>
                   <td className="px-4 py-3">
                     <span className={`font-medium ${isMe ? 'text-sky-300' : 'text-slate-200'}`}>
                       {name} {isMe && <span className="text-[10px] text-sky-500">(you)</span>}
@@ -662,13 +672,21 @@ export function LeagueTournamentPage() {
           </div>
 
           <div className="flex flex-wrap gap-2 text-[11px]">
-            <span className="bg-slate-800 rounded-full px-2.5 py-1 text-slate-400">{tournament.filled_slots || 0}/{tournament.max_slots} teams</span>
-            <span className="bg-slate-800 rounded-full px-2.5 py-1 text-slate-400">{tournament.total_rounds} rounds</span>
+            <span className="bg-slate-800 rounded-full px-2.5 py-1 text-slate-400">
+              {tournament.filled_slots || 0}/{tournament.max_slots} teams
+            </span>
+            <span className="bg-slate-800 rounded-full px-2.5 py-1 text-slate-400">
+              {tournament.total_rounds} rounds
+            </span>
             {tournament.prize_text && (
-              <span className="bg-slate-800 rounded-full px-2.5 py-1 text-slate-400">🏆 {tournament.prize_text}</span>
+              <span className="bg-slate-800 rounded-full px-2.5 py-1 text-slate-400">
+                🏆 {tournament.prize_text}
+              </span>
             )}
             {bracket && (
-              <span className="bg-sky-500/15 border border-sky-500/30 rounded-full px-2.5 py-1 text-sky-300">Round {bracket.current_round} active</span>
+              <span className="bg-sky-500/15 border border-sky-500/30 rounded-full px-2.5 py-1 text-sky-300">
+                Round {bracket.current_round} active
+              </span>
             )}
           </div>
 
@@ -686,7 +704,9 @@ export function LeagueTournamentPage() {
                   <Link to={`/${tournament.game_id}/setup`} className="underline">Set up profile →</Link>
                 </div>
               ) : canRegister ? (
-                <button onClick={() => setShowRegister(true)} className="btn-primary w-full">Register Team</button>
+                <button onClick={() => setShowRegister(true)} className="btn-primary w-full">
+                  Register Team
+                </button>
               ) : null}
             </>
           )}
@@ -705,7 +725,9 @@ export function LeagueTournamentPage() {
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
               className={`flex-1 rounded-lg py-2 text-xs font-medium transition-colors ${
-                activeTab === tab.id ? 'bg-slate-700 text-slate-100 shadow-sm' : 'text-slate-500 hover:text-slate-300'
+                activeTab === tab.id
+                  ? 'bg-slate-700 text-slate-100 shadow-sm'
+                  : 'text-slate-500 hover:text-slate-300'
               }`}
             >
               {tab.label}
@@ -713,8 +735,12 @@ export function LeagueTournamentPage() {
           ))}
         </div>
 
-        {activeTab === 'standings' && <Standings allScores={allScores} myTeamName={myRegistration?.team_name} />}
-        {activeTab === 'schedule' && <MatchSchedule matches={matches} myRegistrationId={myRegistration?.id} />}
+        {activeTab === 'standings' && (
+          <Standings allScores={allScores} myTeamName={myRegistration?.team_name} />
+        )}
+        {activeTab === 'schedule' && (
+          <MatchSchedule matches={matches} myRegistrationId={myRegistration?.id} />
+        )}
         {activeTab === 'myteam' && myRegistration && (
           <MyTeamDashboard
             registration={myRegistration}

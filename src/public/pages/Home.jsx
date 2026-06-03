@@ -42,7 +42,9 @@ function LeagueBanner() {
           <span className="h-1.5 w-1.5 rounded-full bg-purple-400 animate-pulse" />
           <span className="text-[11px] font-medium uppercase tracking-widest text-purple-300">The League</span>
         </div>
-        <Link to="/league" className="text-[11px] text-slate-400 hover:text-slate-200 transition-colors">View all →</Link>
+        <Link to="/league" className="text-[11px] text-slate-400 hover:text-slate-200 transition-colors">
+          View all →
+        </Link>
       </div>
       <div className="space-y-2">
         {items.map(t => (
@@ -93,8 +95,12 @@ export function Home() {
         </p>
 
         <div className="flex flex-wrap items-center gap-3">
-          <Link to="/tournaments" className="btn-primary">Browse tournaments</Link>
-          <Link to="/rules" className="btn-secondary">Platform rules</Link>
+          <Link to="/tournaments" className="btn-primary">
+            Browse tournaments
+          </Link>
+          <Link to="/rules" className="btn-secondary">
+            Platform rules
+          </Link>
         </div>
       </section>
 
