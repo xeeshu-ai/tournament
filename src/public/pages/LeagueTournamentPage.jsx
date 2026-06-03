@@ -540,7 +540,8 @@ function MatchSchedule({ matches, myRegistrationId }) {
 export function LeagueTournamentPage() {
   const { tournamentId } = useParams()
   const navigate = useNavigate()
-  const { profile, fetchGameProfile } = usePlayer()
+  // Also pull `loading` from context so we know when auth/profile is resolved
+  const { profile, loading: profileLoading, fetchGameProfile } = usePlayer()
 
   const [tournament, setTournament] = React.useState(null)
   const [bracket, setBracket] = React.useState(null)
@@ -558,6 +559,14 @@ export function LeagueTournamentPage() {
 
   const load = React.useCallback(async () => {
     if (!tournamentId) return
+
+    // ── FIX: Wait until PlayerContext has finished its initial auth check.
+    // profile === undefined means still loading; null means logged out.
+    // Running before this resolves causes the game-profile fetch to be
+    // skipped (profile.id is undefined), hostGameProfile stays null, and
+    // profileNotApproved fires incorrectly for verified users.
+    if (profileLoading) return
+
     setLoading(true)
     setGameProfileState('loading')
 
@@ -617,7 +626,7 @@ export function LeagueTournamentPage() {
     }
 
     setLoading(false)
-  }, [tournamentId, profile?.id])
+  }, [tournamentId, profile?.id, profileLoading])
 
   React.useEffect(() => { load() }, [load])
 
@@ -627,7 +636,8 @@ export function LeagueTournamentPage() {
     load()
   }
 
-  if (loading) {
+  // Show skeleton while either the page data OR the auth context is still loading
+  if (loading || profileLoading) {
     return (
       <div className="space-y-4 animate-pulse">
         <div className="h-6 w-2/3 rounded bg-slate-700" />
