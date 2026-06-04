@@ -6,7 +6,6 @@ import { useGame } from '../../lib/GameContext'
 import { getModeLabel } from '../../lib/constants'
 
 // ─── Teammate UID Validator ────────────────────────────────────────────────────
-// Bug 3 fix: gameId param scopes query to the correct game only
 function useUidValidation(uid, hostUid, gameId) {
   const [state, setState] = React.useState({ status: 'idle', name: null })
   React.useEffect(() => {
@@ -239,9 +238,11 @@ function RegisteredTeamsList({ tournamentId, teamSize }) {
 }
 
 // ─── Tournament Results ───────────────────────────────────────────────────────
+// Fix 1: Added TDM results UI (mode === 'tdm') alongside existing BR / CS / LW blocks
 function TournamentResults({ tournament }) {
   const isBR = tournament.mode === 'br'
   const isCSorLW = tournament.mode === 'cs' || tournament.mode === 'lw'
+  const isTDM = tournament.mode === 'tdm'
 
   return (
     <section id="tournament-results" className="card space-y-4 border border-amber-700/40 bg-amber-500/5">
@@ -257,6 +258,7 @@ function TournamentResults({ tournament }) {
         </div>
       )}
 
+      {/* ── Battle Royale results ── */}
       {isBR && Array.isArray(tournament.single_br_results) && tournament.single_br_results.length > 0 && (
         <div className="overflow-x-auto">
           <table className="w-full text-xs">
@@ -301,6 +303,7 @@ function TournamentResults({ tournament }) {
         <p className="text-xs text-slate-400">Results will be posted shortly.</p>
       )}
 
+      {/* ── CS / Lone Wolf results ── */}
       {isCSorLW && tournament.cs_lw_results && (() => {
         const matches = tournament.cs_lw_results?.matches || []
         if (!matches.length) return <p className="text-xs text-slate-400">Results will be posted shortly.</p>
@@ -328,6 +331,60 @@ function TournamentResults({ tournament }) {
           </div>
         )
       })()}
+
+      {/* ── TDM results (Fix 1) ── */}
+      {/* tdm_results shape: { matches: [{ teamA: { name, kills, rounds_won }, teamB: { name, kills, rounds_won }, winner_team }] } */}
+      {isTDM && tournament.tdm_results && (() => {
+        const matches = tournament.tdm_results?.matches || []
+        if (!matches.length) return <p className="text-xs text-slate-400">Results will be posted shortly.</p>
+        return (
+          <div className="space-y-4">
+            <p className="text-[10px] uppercase tracking-wide text-slate-500 font-semibold">TDM Match Results</p>
+            {matches.map((match, i) => (
+              <div key={i} className="rounded-lg bg-slate-900/60 ring-1 ring-slate-700 overflow-hidden">
+                <div className="px-3 py-2 text-[10px] font-semibold uppercase tracking-wider text-slate-500 bg-slate-900/80 border-b border-slate-800">
+                  Match {i + 1}{match.map_name ? ` · ${match.map_name}` : ''}
+                </div>
+                <div className="grid grid-cols-[1fr_auto_1fr] gap-2 px-3 py-3 text-xs items-center">
+                  {/* Team A */}
+                  <div className={`space-y-1 ${match.winner_team === match.teamA?.name ? 'text-emerald-300' : 'text-slate-200'}`}>
+                    <p className="font-semibold truncate">{match.teamA?.name ?? '—'}</p>
+                    <div className="flex items-center gap-2 text-[11px] text-slate-400">
+                      {match.teamA?.rounds_won != null && <span>Rounds: <span className="font-semibold text-slate-200">{match.teamA.rounds_won}</span></span>}
+                      {match.teamA?.kills != null && <span>Kills: <span className="font-semibold text-slate-200">{match.teamA.kills}</span></span>}
+                    </div>
+                    {match.winner_team === match.teamA?.name && (
+                      <span className="inline-block text-[9px] font-bold uppercase tracking-wide text-emerald-400 bg-emerald-500/10 rounded px-1.5 py-0.5">Winner</span>
+                    )}
+                  </div>
+                  {/* Centre VS badge */}
+                  <div className="flex flex-col items-center gap-1">
+                    <span className="text-[10px] font-bold text-slate-500">VS</span>
+                    {match.score_a != null && match.score_b != null && (
+                      <span className="text-sm font-black text-slate-100 tabular-nums">{match.score_a}–{match.score_b}</span>
+                    )}
+                  </div>
+                  {/* Team B */}
+                  <div className={`space-y-1 text-right ${match.winner_team === match.teamB?.name ? 'text-emerald-300' : 'text-slate-200'}`}>
+                    <p className="font-semibold truncate">{match.teamB?.name ?? '—'}</p>
+                    <div className="flex items-center justify-end gap-2 text-[11px] text-slate-400">
+                      {match.teamB?.rounds_won != null && <span>Rounds: <span className="font-semibold text-slate-200">{match.teamB.rounds_won}</span></span>}
+                      {match.teamB?.kills != null && <span>Kills: <span className="font-semibold text-slate-200">{match.teamB.kills}</span></span>}
+                    </div>
+                    {match.winner_team === match.teamB?.name && (
+                      <span className="inline-block text-[9px] font-bold uppercase tracking-wide text-emerald-400 bg-emerald-500/10 rounded px-1.5 py-0.5">Winner</span>
+                    )}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )
+      })()}
+
+      {isTDM && !tournament.tdm_results && !tournament.winner_text && (
+        <p className="text-xs text-slate-400">Results will be posted shortly.</p>
+      )}
     </section>
   )
 }
@@ -336,12 +393,14 @@ function TournamentResults({ tournament }) {
 function ResultsPanel({ tournament }) {
   const isBR = tournament.mode === 'br'
   const isCSorLW = tournament.mode === 'cs' || tournament.mode === 'lw'
+  const isTDM = tournament.mode === 'tdm'
 
   const hasResults =
     (isBR && Array.isArray(tournament.single_br_results) && tournament.single_br_results.length > 0) ||
     (isBR && tournament.winner_text) ||
     (isCSorLW && tournament.cs_lw_results?.matches?.length > 0) ||
     (isCSorLW && tournament.winner_text) ||
+    (isTDM && tournament.tdm_results?.matches?.length > 0) ||
     tournament.winner_text
 
   if (!hasResults && tournament.status !== 'ended') return null
@@ -360,20 +419,50 @@ function ResultsPanel({ tournament }) {
   )
 }
 
-// ─── Room Code Card (single match) ────────────────────────────────────────────
+// ─── Room Code Card — Fix 2: Realtime subscription replaces 15s polling ────────
 function RoomCodeCard({ tournamentId }) {
   const [roomCode, setRoomCode] = React.useState(undefined)
 
   React.useEffect(() => {
+    // Initial fetch
     async function fetchRoom() {
       const { data } = await supabasePlayer
-        .from('room_codes').select('room_id, room_password, is_revealed')
-        .eq('tournament_id', tournamentId).maybeSingle()
+        .from('room_codes')
+        .select('room_id, room_password, is_revealed')
+        .eq('tournament_id', tournamentId)
+        // Only single-match tournaments use RoomCodeCard; exclude league rows that have a match_id
+        .is('match_id', null)
+        .maybeSingle()
       setRoomCode(data || null)
     }
     fetchRoom()
-    const interval = setInterval(fetchRoom, 15_000)
-    return () => clearInterval(interval)
+
+    // Realtime: subscribe to any UPDATE on the row for this tournament
+    const channel = supabasePlayer
+      .channel(`room_codes:single:${tournamentId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'room_codes',
+          filter: `tournament_id=eq.${tournamentId}`,
+        },
+        (payload) => {
+          // payload.new is the fresh row after INSERT or UPDATE
+          const row = payload.new
+          if (row) {
+            setRoomCode(row)
+          } else if (payload.eventType === 'DELETE') {
+            setRoomCode(null)
+          }
+        }
+      )
+      .subscribe()
+
+    return () => {
+      supabasePlayer.removeChannel(channel)
+    }
   }, [tournamentId])
 
   if (roomCode === undefined) {
@@ -396,7 +485,7 @@ function RoomCodeCard({ tournamentId }) {
     return (
       <div className="card space-y-2 border border-amber-700/40 bg-amber-500/5" id="tournament-room">
         <p className="text-xs font-semibold text-amber-300">🎮 Room Details</p>
-        <p className="text-[11px] text-slate-400 leading-relaxed">Room code added but not yet revealed. Keep this page open — it refreshes automatically.</p>
+        <p className="text-[11px] text-slate-400 leading-relaxed">Room code added but not yet revealed. You'll see it here the instant it goes live.</p>
       </div>
     )
   }
@@ -949,7 +1038,6 @@ function LongTournamentPanel({ tournamentId, myReg, totalRounds }) {
 }
 
 // ─── Registration Form ────────────────────────────────────────────────────────
-// Bug 2 fix: teammate UIDs are optional — form only blocks on empty team name
 function RegistrationForm({ tournament, player, onRegistered }) {
   const tc = teammateCount(tournament.team_size)
   const [teamName, setTeamName] = React.useState('')
@@ -963,7 +1051,6 @@ function RegistrationForm({ tournament, player, onRegistered }) {
     e.preventDefault()
     setError(null)
     if (!teamName.trim()) { setError('Team name is required.'); return }
-    // Only validate UIDs that were actually filled in
     const filledUids = teammates.map(t => t.trim()).filter(Boolean)
     const allUids = [player.game_uid, ...filledUids]
     if (new Set(allUids).size !== allUids.length) { setError('Duplicate UIDs found.'); return }
@@ -986,7 +1073,6 @@ function RegistrationForm({ tournament, player, onRegistered }) {
       .select('id')
       .single()
     if (regErr) { setError(regErr.message); setSubmitting(false); return }
-    // Insert host + any confirmed teammates (skip empty slots)
     const memberRows = [
       { registration_id: reg.id, slot: 0, game_uid: player.game_uid, in_game_name: player.in_game_name },
       ...teammates
@@ -1104,8 +1190,14 @@ export default function TournamentDetails() {
           <span className={`text-[10px] px-2 py-0.5 rounded-full font-semibold uppercase tracking-wide shrink-0 ${
             isEnded ? 'bg-red-600/20 text-red-400' :
             tournament.status === 'live' ? 'bg-emerald-600/20 text-emerald-400' :
+            tournament.status === 'registration_closed' ? 'bg-amber-600/20 text-amber-400' :
             'bg-slate-700 text-slate-400'
-          }`}>{isEnded ? 'Ended' : tournament.status}</span>
+          }`}>
+            {isEnded ? 'Ended' :
+             tournament.status === 'live' ? 'Live' :
+             tournament.status === 'registration_closed' ? 'Reg. Closed' :
+             tournament.status}
+          </span>
         </div>
         <div className="flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-slate-400">
           <span>🎮 {getModeLabel(game?.id, tournament.mode)}</span>
