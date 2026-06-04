@@ -1257,13 +1257,35 @@ export default function TournamentDetails() {
 
   async function checkMyReg() {
     if (!player?.game_uid) { setMyReg(null); return }
-    const { data } = await supabasePlayer
+
+    // First: check if player is the host
+    const { data: hostReg } = await supabasePlayer
       .from('tournament_registrations')
       .select('id, team_name, status, host_uid')
       .eq('tournament_id', tournamentId)
       .eq('host_uid', player.game_uid)
       .maybeSingle()
-    setMyReg(data || null)
+
+    if (hostReg) { setMyReg(hostReg); return }
+
+    // Second: check if player is a teammate (in registration_members)
+    const { data: memberRow } = await supabasePlayer
+      .from('registration_members')
+      .select('registration_id')
+      .eq('game_uid', player.game_uid)
+      .maybeSingle()
+
+    if (!memberRow) { setMyReg(null); return }
+
+    // Fetch the parent registration and confirm it belongs to this tournament
+    const { data: reg } = await supabasePlayer
+      .from('tournament_registrations')
+      .select('id, team_name, status, host_uid')
+      .eq('id', memberRow.registration_id)
+      .eq('tournament_id', tournamentId)
+      .maybeSingle()
+
+    setMyReg(reg || null)
   }
 
   React.useEffect(() => { loadTournament() }, [tournamentId])
@@ -1291,7 +1313,7 @@ export default function TournamentDetails() {
   const isEnded = tournament.status === 'ended'
   const canRegister = regOpen && !isEnded && !authLoading && player && !myReg
 
-  // hasJoined: player has any registration (pending or confirmed)
+  // hasJoined: player has any registration (pending or confirmed) — as host OR teammate
   const hasJoined = !!myReg
 
   return (
@@ -1353,7 +1375,7 @@ export default function TournamentDetails() {
       )}
 
       {/* Room code card — always shown for single-match tournaments.
-          Registered players see the real details (or pending state).
+          Registered players (host OR teammate) see the real details (or pending state).
           Non-registered visitors see a locked teaser to encourage registration. */}
       {!isLong && !isEnded && (
         <RoomCodeCard tournamentId={tournamentId} hasJoined={hasJoined} />
