@@ -257,7 +257,6 @@ function TournamentResults({ tournament }) {
         </div>
       )}
 
-      {/* ── Battle Royale results ── */}
       {isBR && Array.isArray(tournament.single_br_results) && tournament.single_br_results.length > 0 && (
         <div className="overflow-x-auto">
           <table className="w-full text-xs">
@@ -302,7 +301,6 @@ function TournamentResults({ tournament }) {
         <p className="text-xs text-slate-400">Results will be posted shortly.</p>
       )}
 
-      {/* ── CS / Lone Wolf results ── */}
       {isCSorLW && tournament.cs_lw_results && (() => {
         const matches = tournament.cs_lw_results?.matches || []
         if (!matches.length) return <p className="text-xs text-slate-400">Results will be posted shortly.</p>
@@ -331,7 +329,6 @@ function TournamentResults({ tournament }) {
         )
       })()}
 
-      {/* ── TDM results ── */}
       {isTDM && tournament.tdm_results && (() => {
         const matches = tournament.tdm_results?.matches || []
         if (!matches.length) return <p className="text-xs text-slate-400">Results will be posted shortly.</p>
@@ -414,11 +411,37 @@ function ResultsPanel({ tournament }) {
   )
 }
 
+// ─── Copy Button ───────────────────────────────────────────────────────────────
+function CopyButton({ text }) {
+  const [copied, setCopied] = React.useState(false)
+  function handleCopy() {
+    navigator.clipboard.writeText(text || '').then(() => {
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    })
+  }
+  return (
+    <button
+      type="button"
+      onClick={handleCopy}
+      className={`text-[11px] px-3 py-1.5 rounded-lg font-semibold transition-all shrink-0 ${
+        copied
+          ? 'bg-emerald-600/30 text-emerald-300 ring-1 ring-emerald-600/50'
+          : 'bg-slate-800 text-slate-300 ring-1 ring-slate-700 hover:bg-slate-700'
+      }`}
+    >
+      {copied ? '✓ Copied' : 'Copy'}
+    </button>
+  )
+}
+
 // ─── Room Code Card ────────────────────────────────────────────────────────────
-// Shows room details to any registered player (confirmed or pending).
-// Uses realtime subscription so the code appears instantly when admin reveals it.
-function RoomCodeCard({ tournamentId }) {
+// hasJoined = player has a registration (pending or confirmed)
+// Shows a locked teaser to non-registered visitors
+// Uses realtime so room appears the instant admin reveals it
+function RoomCodeCard({ tournamentId, hasJoined }) {
   const [roomCode, setRoomCode] = React.useState(undefined)
+  const [showPassword, setShowPassword] = React.useState(false)
 
   React.useEffect(() => {
     async function fetchRoom() {
@@ -453,56 +476,153 @@ function RoomCodeCard({ tournamentId }) {
       )
       .subscribe()
 
-    return () => {
-      supabasePlayer.removeChannel(channel)
-    }
+    return () => { supabasePlayer.removeChannel(channel) }
   }, [tournamentId])
 
+  // ── Loading state ──
   if (roomCode === undefined) {
     return (
       <div className="card space-y-2" id="tournament-room">
-        <p className="text-xs font-semibold text-slate-300">🎮 Room Details</p>
-        <p className="text-[11px] text-slate-500 animate-pulse">Loading…</p>
+        <div className="flex items-center gap-2">
+          <span className="text-base">🎮</span>
+          <p className="text-xs font-semibold text-slate-300">Room Details</p>
+        </div>
+        <div className="flex items-center gap-2 text-[11px] text-slate-500 animate-pulse">
+          <div className="h-3 w-3 rounded-full border-2 border-slate-600 border-t-amber-400 animate-spin" />
+          Loading…
+        </div>
       </div>
     )
   }
+
+  // ── Not registered — locked teaser ──
+  if (!hasJoined) {
+    return (
+      <div className="card space-y-3 border border-slate-700/60" id="tournament-room">
+        <div className="flex items-center gap-2">
+          <span className="text-base">🎮</span>
+          <p className="text-xs font-semibold text-slate-300">Room Details</p>
+          <span className="ml-auto text-[10px] px-2 py-0.5 rounded-full bg-slate-800 text-slate-500 font-semibold uppercase tracking-wide">🔒 Registered Only</span>
+        </div>
+        <div className="rounded-xl bg-slate-900/60 ring-1 ring-slate-700/60 p-3 space-y-3 select-none">
+          <div className="flex items-center justify-between gap-3">
+            <div className="space-y-1">
+              <p className="text-[10px] uppercase tracking-wide text-slate-600">Room ID</p>
+              <p className="font-mono text-sm font-bold text-slate-700 tracking-widest">• • • • • • • •</p>
+            </div>
+            <div className="text-[11px] px-3 py-1.5 rounded-lg bg-slate-800/50 text-slate-600 ring-1 ring-slate-700/40 cursor-not-allowed">Copy</div>
+          </div>
+          <div className="border-t border-slate-800" />
+          <div className="flex items-center justify-between gap-3">
+            <div className="space-y-1">
+              <p className="text-[10px] uppercase tracking-wide text-slate-600">Password</p>
+              <p className="font-mono text-sm font-bold text-slate-700 tracking-widest">• • • • • •</p>
+            </div>
+            <div className="text-[11px] px-3 py-1.5 rounded-lg bg-slate-800/50 text-slate-600 ring-1 ring-slate-700/40 cursor-not-allowed">Copy</div>
+          </div>
+        </div>
+        <p className="text-[11px] text-slate-500 text-center">Register for this tournament to see room details.</p>
+      </div>
+    )
+  }
+
+  // ── Registered but no room added yet ──
   if (!roomCode) {
     return (
       <div className="card space-y-2" id="tournament-room">
-        <p className="text-xs font-semibold text-slate-300">🎮 Room Details</p>
-        <p className="text-[11px] text-slate-500">Room details not added yet. Check back later.</p>
+        <div className="flex items-center gap-2">
+          <span className="text-base">🎮</span>
+          <p className="text-xs font-semibold text-slate-300">Room Details</p>
+        </div>
+        <p className="text-[11px] text-slate-500 leading-relaxed">Room details haven't been added yet. Check back closer to match time.</p>
       </div>
     )
   }
+
+  // ── Room added but not yet revealed ──
   if (!roomCode.is_revealed) {
     return (
-      <div className="card space-y-2 border border-amber-700/40 bg-amber-500/5" id="tournament-room">
-        <p className="text-xs font-semibold text-amber-300">🎮 Room Details</p>
-        <p className="text-[11px] text-slate-400 leading-relaxed">Room code added but not yet revealed. You'll see it here the instant it goes live.</p>
+      <div className="card space-y-3 border border-amber-700/40 bg-amber-500/5" id="tournament-room">
+        <div className="flex items-center gap-2">
+          <span className="text-base">🎮</span>
+          <p className="text-xs font-semibold text-amber-300">Room Details</p>
+          <span className="ml-auto text-[10px] px-2 py-0.5 rounded-full bg-amber-600/20 text-amber-400 font-semibold uppercase tracking-wide animate-pulse">⏳ Pending</span>
+        </div>
+        <div className="rounded-xl bg-slate-900/60 ring-1 ring-amber-700/30 p-3 space-y-3 select-none">
+          <div className="flex items-center justify-between gap-3">
+            <div className="space-y-1">
+              <p className="text-[10px] uppercase tracking-wide text-slate-500">Room ID</p>
+              <p className="font-mono text-sm font-bold text-slate-600 tracking-widest">• • • • • • • •</p>
+            </div>
+            <div className="text-[11px] px-3 py-1.5 rounded-lg bg-slate-800/50 text-slate-600 ring-1 ring-slate-700/40 cursor-not-allowed">Copy</div>
+          </div>
+          <div className="border-t border-slate-800" />
+          <div className="flex items-center justify-between gap-3">
+            <div className="space-y-1">
+              <p className="text-[10px] uppercase tracking-wide text-slate-500">Password</p>
+              <p className="font-mono text-sm font-bold text-slate-600 tracking-widest">• • • • • •</p>
+            </div>
+            <div className="text-[11px] px-3 py-1.5 rounded-lg bg-slate-800/50 text-slate-600 ring-1 ring-slate-700/40 cursor-not-allowed">Copy</div>
+          </div>
+        </div>
+        <p className="text-[11px] text-slate-400 leading-relaxed">Room code is ready — it will appear here the instant the organiser reveals it. Stay on this page.</p>
       </div>
     )
   }
+
+  // ── Revealed — show room ID and password ──
   return (
     <div className="card space-y-3 border border-emerald-700/40 bg-emerald-500/5" id="tournament-room">
       <div className="flex items-center justify-between gap-3">
-        <p className="text-xs font-semibold text-emerald-300">🎮 Room Details</p>
-        <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-600/20 text-emerald-300 font-semibold uppercase tracking-wide">Live</span>
-      </div>
-      <p className="text-[11px] text-slate-400">Share only with your teammates.</p>
-      <div className="rounded-xl bg-slate-950/50 ring-1 ring-white/10 p-3 space-y-3">
-        <div className="flex items-center justify-between gap-3">
-          <div>
-            <p className="text-[10px] uppercase tracking-wide text-slate-500">Room ID</p>
-            <span className="font-mono text-sm font-bold text-slate-50 tracking-wider select-all">{roomCode.room_id}</span>
-          </div>
-          <button type="button" className="btn-secondary text-[11px] px-3 py-1.5" onClick={() => navigator.clipboard.writeText(roomCode.room_id || '')}>Copy</button>
+        <div className="flex items-center gap-2">
+          <span className="text-base">🎮</span>
+          <p className="text-xs font-semibold text-emerald-300">Room Details</p>
         </div>
+        <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-600/20 text-emerald-300 font-semibold uppercase tracking-wide">🟢 Live</span>
+      </div>
+      <p className="text-[11px] text-slate-400">Share only with your registered teammates.</p>
+      <div className="rounded-xl bg-slate-950/60 ring-1 ring-emerald-700/30 p-3 space-y-3">
+        {/* Room ID */}
         <div className="flex items-center justify-between gap-3">
-          <div>
-            <p className="text-[10px] uppercase tracking-wide text-slate-500">Password</p>
-            <span className="font-mono text-sm font-bold text-slate-50 tracking-wider select-all">{roomCode.room_password}</span>
+          <div className="min-w-0">
+            <p className="text-[10px] uppercase tracking-wide text-slate-500 mb-0.5">Room ID</p>
+            <span className="font-mono text-sm font-bold text-slate-50 tracking-wider select-all break-all">
+              {roomCode.room_id}
+            </span>
           </div>
-          <button type="button" className="btn-secondary text-[11px] px-3 py-1.5" onClick={() => navigator.clipboard.writeText(roomCode.room_password || '')}>Copy</button>
+          <CopyButton text={roomCode.room_id} />
+        </div>
+        <div className="border-t border-slate-800" />
+        {/* Password */}
+        <div className="flex items-center justify-between gap-3">
+          <div className="min-w-0 flex-1">
+            <p className="text-[10px] uppercase tracking-wide text-slate-500 mb-0.5">Password</p>
+            <div className="flex items-center gap-2">
+              <span className="font-mono text-sm font-bold text-slate-50 tracking-wider select-all break-all">
+                {showPassword ? roomCode.room_password : '•'.repeat(Math.min((roomCode.room_password || '').length || 6, 12))}
+              </span>
+              <button
+                type="button"
+                onClick={() => setShowPassword(p => !p)}
+                className="text-slate-500 hover:text-slate-300 transition-colors shrink-0"
+                aria-label={showPassword ? 'Hide password' : 'Show password'}
+              >
+                {showPassword ? (
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94" />
+                    <path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19" />
+                    <line x1="1" y1="1" x2="23" y2="23" />
+                  </svg>
+                ) : (
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+                    <circle cx="12" cy="12" r="3" />
+                  </svg>
+                )}
+              </button>
+            </div>
+          </div>
+          <CopyButton text={roomCode.room_password} />
         </div>
       </div>
     </div>
@@ -835,18 +955,19 @@ function LongTournamentPanel({ tournamentId, myReg, totalRounds }) {
             <div className="rounded-xl bg-slate-950/50 ring-1 ring-emerald-700/40 p-3 space-y-3">
               <p className="text-[10px] uppercase tracking-wide text-emerald-400 font-semibold">🎮 Room Details — Match #{myMatch.match_number}</p>
               <div className="flex items-center justify-between gap-3">
-                <div>
+                <div className="min-w-0">
                   <p className="text-[10px] uppercase tracking-wide text-slate-500">Room ID</p>
                   <span className="font-mono text-sm font-bold text-slate-50 tracking-wider select-all">{roomCode.room_id}</span>
                 </div>
-                <button type="button" className="btn-secondary text-[11px] px-3 py-1.5" onClick={() => navigator.clipboard.writeText(roomCode.room_id || '')}>Copy</button>
+                <CopyButton text={roomCode.room_id} />
               </div>
+              <div className="border-t border-slate-800" />
               <div className="flex items-center justify-between gap-3">
-                <div>
+                <div className="min-w-0">
                   <p className="text-[10px] uppercase tracking-wide text-slate-500">Password</p>
                   <span className="font-mono text-sm font-bold text-slate-50 tracking-wider select-all">{roomCode.room_password}</span>
                 </div>
-                <button type="button" className="btn-secondary text-[11px] px-3 py-1.5" onClick={() => navigator.clipboard.writeText(roomCode.room_password || '')}>Copy</button>
+                <CopyButton text={roomCode.room_password} />
               </div>
             </div>
           )}
@@ -1170,7 +1291,7 @@ export default function TournamentDetails() {
   const isEnded = tournament.status === 'ended'
   const canRegister = regOpen && !isEnded && !authLoading && player && !myReg
 
-  // A player is considered "joined" if they have any registration (pending or confirmed)
+  // hasJoined: player has any registration (pending or confirmed)
   const hasJoined = !!myReg
 
   return (
@@ -1231,9 +1352,11 @@ export default function TournamentDetails() {
         </div>
       )}
 
-      {/* Room code: show to ALL registered players (pending or confirmed) for single-match tournaments */}
-      {!isLong && hasJoined && (
-        <RoomCodeCard tournamentId={tournamentId} />
+      {/* Room code card — always shown for single-match tournaments.
+          Registered players see the real details (or pending state).
+          Non-registered visitors see a locked teaser to encourage registration. */}
+      {!isLong && !isEnded && (
+        <RoomCodeCard tournamentId={tournamentId} hasJoined={hasJoined} />
       )}
 
       {isLong && myReg?.status === 'confirmed' && !isEnded && (
