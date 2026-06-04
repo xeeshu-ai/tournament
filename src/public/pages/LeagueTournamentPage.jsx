@@ -44,7 +44,7 @@ function UidLookupField({ gameId, onConfirmed, onClear, excludeUids = [], label 
       .select('id, game_uid, in_game_name, player_id, status')
       .eq('game_id', gameId)
       .eq('game_uid', val.trim())
-      .eq('status', 'approved')
+      .eq('status', 'verified')
       .maybeSingle()
 
     if (!data) { setState('error'); setFound(null); return }
@@ -90,13 +90,13 @@ function UidLookupField({ gameId, onConfirmed, onClear, excludeUids = [], label 
 
   return (
     <div className="space-y-2">
-      <label className="block text-xs font-medium text-slate-400">{label}</label>
+      <label className="block text-xs font-medium text-slate-400">{label} <span className="text-slate-600">(optional)</span></label>
       <div className="flex gap-2">
         <input
           value={uid}
           onChange={handleChange}
           inputMode="text"
-          placeholder="Enter in-game UID..."
+          placeholder="Enter in-game UID (optional)…"
           className="flex-1 rounded-xl border border-slate-700 bg-slate-800/80 px-4 py-3 text-sm text-slate-100 placeholder:text-slate-600 focus:border-sky-500/50 focus:outline-none focus:ring-1 focus:ring-sky-500/30"
         />
         <button
@@ -122,7 +122,7 @@ function UidLookupField({ gameId, onConfirmed, onClear, excludeUids = [], label 
 
       {state === 'error' && (
         <p className="text-[11px] text-red-400 px-1">
-          {found?.error ?? `No verified player found with this UID for ${gameId?.toUpperCase()}.`}
+          {found?.error ?? `No verified ${gameId?.toUpperCase()} player found with this UID.`}
         </p>
       )}
     </div>
@@ -140,8 +140,7 @@ function RegisterSheet({ tournament, playerProfile, hostGameProfile, onClose, on
 
   const teamSize = tournament.team_size || 1
   const need = teamSize - 1
-  const allConfirmed = teammates.length === need
-
+  // Teammates are optional — we no longer block progression on allConfirmed
   const excludeUids = [hostGameProfile?.game_uid, ...teammates.map(t => t.gameUid)].filter(Boolean)
 
   function setTeammate(idx, data) {
@@ -177,6 +176,7 @@ function RegisterSheet({ tournament, playerProfile, hostGameProfile, onClose, on
 
       if (regErr) throw regErr
 
+      // Only insert members that were actually confirmed; host is always slot 1
       const members = [
         { registration_id: reg.id, player_id: playerProfile.id, slot: 1, game_uid: hostGameProfile.game_uid, in_game_name: hostGameProfile.in_game_name },
         ...teammates.map((t, i) => ({
@@ -259,8 +259,8 @@ function RegisterSheet({ tournament, playerProfile, hostGameProfile, onClose, on
           {step === 2 && need > 0 && (
             <div className="space-y-4">
               <div>
-                <h2 className="text-base font-semibold text-slate-100">Add {need} teammate{need > 1 ? 's' : ''}</h2>
-                <p className="text-xs text-slate-500 mt-1">They must be registered & verified on Tournvia for {tournament.game_id?.toUpperCase()}.</p>
+                <h2 className="text-base font-semibold text-slate-100">Add teammates <span className="text-slate-500 font-normal text-sm">(optional)</span></h2>
+                <p className="text-xs text-slate-500 mt-1">You can skip this and add teammates later. UIDs must belong to verified {tournament.game_id?.toUpperCase()} profiles.</p>
               </div>
               {Array.from({ length: need }).map((_, i) => (
                 <UidLookupField
@@ -279,7 +279,7 @@ function RegisterSheet({ tournament, playerProfile, hostGameProfile, onClose, on
             <div className="space-y-4">
               <div>
                 <h2 className="text-base font-semibold text-slate-100">Review & Submit</h2>
-                <p className="text-xs text-slate-500 mt-1">Once submitted, your team composition cannot be changed.</p>
+                <p className="text-xs text-slate-500 mt-1">You can add remaining teammates after registration from your team dashboard.</p>
               </div>
               <div className="rounded-xl border border-slate-700/60 bg-slate-800/40 divide-y divide-slate-700/50">
                 <div className="px-4 py-3">
@@ -307,6 +307,13 @@ function RegisterSheet({ tournament, playerProfile, hostGameProfile, onClose, on
                     </div>
                   </div>
                 ))}
+                {need > 0 && teammates.length < need && (
+                  <div className="px-4 py-3">
+                    <p className="text-[11px] text-slate-500">
+                      {need - teammates.length} teammate slot{need - teammates.length > 1 ? 's' : ''} empty — can be filled after registration.
+                    </p>
+                  </div>
+                )}
               </div>
               <div className="rounded-xl border border-slate-700/40 bg-slate-800/20 px-4 py-3 flex items-center justify-between">
                 <span className="text-xs text-slate-400">Entry Fee</span>
@@ -337,8 +344,7 @@ function RegisterSheet({ tournament, playerProfile, hostGameProfile, onClose, on
           {step === 2 && need > 0 && (
             <button
               onClick={() => setStep(3)}
-              disabled={!allConfirmed}
-              className="flex-1 rounded-xl bg-sky-600 py-3 text-sm font-semibold text-white hover:bg-sky-500 disabled:opacity-40 transition-colors"
+              className="flex-1 rounded-xl bg-sky-600 py-3 text-sm font-semibold text-white hover:bg-sky-500 transition-colors"
             >
               Review →
             </button>
@@ -540,7 +546,6 @@ function MatchSchedule({ matches, myRegistrationId }) {
 export function LeagueTournamentPage() {
   const { tournamentId } = useParams()
   const navigate = useNavigate()
-  // Also pull `loading` from context so we know when auth/profile is resolved
   const { profile, loading: profileLoading, fetchGameProfile } = usePlayer()
 
   const [tournament, setTournament] = React.useState(null)
@@ -550,7 +555,6 @@ export function LeagueTournamentPage() {
   const [myRegistration, setMyRegistration] = React.useState(null)
   const [myScores, setMyScores] = React.useState([])
   const [hostGameProfile, setHostGameProfile] = React.useState(null)
-  // 'loading' = not yet fetched, 'done' = fetch completed (may be null/approved/other)
   const [gameProfileState, setGameProfileState] = React.useState('loading')
   const [loading, setLoading] = React.useState(true)
   const [showRegister, setShowRegister] = React.useState(false)
@@ -559,12 +563,6 @@ export function LeagueTournamentPage() {
 
   const load = React.useCallback(async () => {
     if (!tournamentId) return
-
-    // ── FIX: Wait until PlayerContext has finished its initial auth check.
-    // profile === undefined means still loading; null means logged out.
-    // Running before this resolves causes the game-profile fetch to be
-    // skipped (profile.id is undefined), hostGameProfile stays null, and
-    // profileNotApproved fires incorrectly for verified users.
     if (profileLoading) return
 
     setLoading(true)
@@ -636,7 +634,6 @@ export function LeagueTournamentPage() {
     load()
   }
 
-  // Show skeleton while either the page data OR the auth context is still loading
   if (loading || profileLoading) {
     return (
       <div className="space-y-4 animate-pulse">
@@ -658,11 +655,10 @@ export function LeagueTournamentPage() {
     )
   }
 
-  // Only show the profile warning when the fetch is complete AND the profile
-  // is confirmed missing or non-approved. Never block on null while still loading.
+  // Bug 1 fix: check for 'verified' (the actual DB value), not 'approved'
   const profileNotApproved =
     gameProfileState === 'done' &&
-    (!hostGameProfile || hostGameProfile.status !== 'approved')
+    (!hostGameProfile || hostGameProfile.status !== 'verified')
 
   const canRegister = !myRegistration
     && tournament.status !== 'completed'
