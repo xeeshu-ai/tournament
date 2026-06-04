@@ -14,10 +14,7 @@ export function Tournaments() {
   const [tournaments, setTournaments] = React.useState([])
   const [myRegistrations, setMyRegistrations] = React.useState([])
 
-  // NEW: filter state for type
-  const [typeFilter, setTypeFilter] = React.useState('all') // 'all' | 'single' | 'long'
-
-  // Load tournaments filtered by current game
+  // Load tournaments filtered by current game — only single-type
   React.useEffect(() => {
     if (!game) return
     let ignore = false
@@ -28,6 +25,7 @@ export function Tournaments() {
         .select('*')
         .eq('game_id', game.id)
         .eq('is_archived', false)
+        .eq('type', 'single')
         .order('start_time', { ascending: true })
       if (!ignore) {
         setTournaments(error ? [] : (data || []))
@@ -43,18 +41,16 @@ export function Tournaments() {
     if (!profile?.id || !gameProfile?.game_uid) { setMyRegistrations([]); return }
     let ignore = false
     async function loadMyRegs() {
-      // Get registrations where player is host
       const { data: asHost } = await supabasePlayer
         .from('tournament_registrations')
         .select('tournament_id')
         .eq('host_player_id', profile.id)
 
-      // Get registrations where player appears as a member (slot 2/3/4)
       const { data: asMembers } = await supabasePlayer
         .from('registration_members')
         .select('registration_id, tournament_registrations!inner(tournament_id)')
         .eq('game_uid', gameProfile.game_uid)
-        .neq('slot', 1) // slot 1 = host, already covered above
+        .neq('slot', 1)
 
       if (!ignore) {
         const hostIds = (asHost || []).map((r) => r.tournament_id)
@@ -69,13 +65,6 @@ export function Tournaments() {
   }, [profile?.id, gameProfile?.game_uid])
 
   if (!game) return null
-
-  // Derived filtered list
-  const filteredTournaments = tournaments.filter((t) => {
-    if (typeFilter === 'single') return t.type === 'single'
-    if (typeFilter === 'long') return t.type !== 'single'
-    return true
-  })
 
   return (
     <div className="space-y-6">
@@ -139,39 +128,55 @@ export function Tournaments() {
         )}
       </header>
 
-      {/* NEW: type filter bar */}
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="inline-flex rounded-full bg-slate-900/60 p-1 text-[11px]">
-          {[
-            { id: 'all', label: 'All' },
-            { id: 'single', label: 'Single matches' },
-            { id: 'long', label: 'Long tournaments' },
-          ].map((opt) => {
-            const active = typeFilter === opt.id
-            return (
-              <button
-                key={opt.id}
-                type="button"
-                onClick={() => setTypeFilter(opt.id)}
-                className={
-                  'px-3 py-1.5 rounded-full font-semibold transition-colors ' +
-                  (active
-                    ? 'bg-sky-500 text-slate-950'
-                    : 'text-slate-400 hover:text-slate-100')
-                }
-              >
-                {opt.label}
-              </button>
-            )
-          })}
+      {/* League Banner */}
+      <Link
+        to="/league"
+        className="group relative flex items-center justify-between gap-4 overflow-hidden rounded-2xl border border-violet-500/30 bg-gradient-to-r from-violet-950/80 via-indigo-950/80 to-slate-900/90 px-5 py-4 shadow-lg shadow-violet-950/40 transition-all hover:border-violet-400/50 hover:shadow-violet-900/60"
+      >
+        {/* Glow orb */}
+        <div className="pointer-events-none absolute -left-6 top-1/2 h-24 w-24 -translate-y-1/2 rounded-full bg-violet-500/20 blur-2xl" />
+        <div className="pointer-events-none absolute right-12 top-1/2 h-16 w-16 -translate-y-1/2 rounded-full bg-indigo-500/20 blur-2xl" />
+
+        <div className="relative flex items-center gap-3">
+          {/* Trophy icon */}
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-violet-500/20 border border-violet-500/30">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="text-violet-300">
+              <path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6" />
+              <path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18" />
+              <path d="M4 22h16" />
+              <path d="M10 14.66V17c0 .55-.47.98-.97 1.21C7.85 18.75 7 20.24 7 22" />
+              <path d="M14 14.66V17c0 .55.47.98.97 1.21C16.15 18.75 17 20.24 17 22" />
+              <path d="M18 2H6v7a6 6 0 0 0 12 0V2Z" />
+            </svg>
+          </div>
+          <div>
+            <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-violet-400">
+              League Season
+            </p>
+            <p className="text-sm font-semibold text-slate-50">
+              Join the League &amp; win bigger
+            </p>
+            <p className="mt-0.5 text-[11px] text-slate-400">
+              Multi-round • Points system • Bigger prizes
+            </p>
+          </div>
         </div>
 
+        {/* Arrow */}
+        <div className="relative flex shrink-0 items-center gap-1 rounded-full border border-violet-500/40 bg-violet-500/15 px-3 py-1.5 text-xs font-semibold text-violet-300 transition-all group-hover:bg-violet-500/25 group-hover:border-violet-400/60">
+          View League
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="transition-transform group-hover:translate-x-0.5">
+            <path d="M5 12h14M12 5l7 7-7 7" />
+          </svg>
+        </div>
+      </Link>
+
+      {/* Tournament count */}
+      <div className="flex items-center justify-between">
         <p className="text-[11px] text-slate-500">
           Showing{' '}
-          <span className="font-semibold text-slate-200">
-            {filteredTournaments.length}
-          </span>{' '}
-          of {tournaments.length} tournaments
+          <span className="font-semibold text-slate-200">{tournaments.length}</span>{' '}
+          tournament{tournaments.length !== 1 ? 's' : ''}
         </p>
       </div>
 
@@ -181,17 +186,13 @@ export function Tournaments() {
             <div key={i} className="card h-24 animate-pulse bg-slate-800/60" />
           ))}
         </div>
-      ) : filteredTournaments.length === 0 ? (
+      ) : tournaments.length === 0 ? (
         <div className="card text-xs text-slate-300">
-          {typeFilter === 'single'
-            ? `No single-match ${game.name} tournaments are live right now.`
-            : typeFilter === 'long'
-            ? `No long-format ${game.name} tournaments are live right now.`
-            : `No ${game.name} tournaments are live right now. Check back later.`}
+          No {game.name} tournaments are live right now. Check back later.
         </div>
       ) : (
         <div className="grid gap-4 md:grid-cols-2">
-          {filteredTournaments.map((t) => {
+          {tournaments.map((t) => {
             const isRegistered = myRegistrations.includes(t.id)
             const modeLabel = getModeLabel(t)
             const formatLabel = t.format_label
@@ -208,14 +209,7 @@ export function Tournaments() {
                 <div className="flex items-center justify-between gap-3">
                   <div className="flex flex-wrap items-center gap-2 text-[11px]">
                     {typeMeta && (
-                      <span
-                        className={
-                          'rounded-full px-2 py-0.5 font-semibold uppercase tracking-[0.18em] ' +
-                          (t.type === 'single'
-                            ? 'bg-emerald-500/10 text-emerald-300 border border-emerald-500/40'
-                            : 'bg-violet-500/10 text-violet-300 border border-violet-500/40')
-                        }
-                      >
+                      <span className="rounded-full px-2 py-0.5 font-semibold uppercase tracking-[0.18em] bg-emerald-500/10 text-emerald-300 border border-emerald-500/40">
                         {typeMeta.label}
                       </span>
                     )}
