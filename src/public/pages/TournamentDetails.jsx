@@ -238,7 +238,6 @@ function RegisteredTeamsList({ tournamentId, teamSize }) {
 }
 
 // ─── Tournament Results ───────────────────────────────────────────────────────
-// Fix 1: Added TDM results UI (mode === 'tdm') alongside existing BR / CS / LW blocks
 function TournamentResults({ tournament }) {
   const isBR = tournament.mode === 'br'
   const isCSorLW = tournament.mode === 'cs' || tournament.mode === 'lw'
@@ -332,8 +331,7 @@ function TournamentResults({ tournament }) {
         )
       })()}
 
-      {/* ── TDM results (Fix 1) ── */}
-      {/* tdm_results shape: { matches: [{ teamA: { name, kills, rounds_won }, teamB: { name, kills, rounds_won }, winner_team }] } */}
+      {/* ── TDM results ── */}
       {isTDM && tournament.tdm_results && (() => {
         const matches = tournament.tdm_results?.matches || []
         if (!matches.length) return <p className="text-xs text-slate-400">Results will be posted shortly.</p>
@@ -346,7 +344,6 @@ function TournamentResults({ tournament }) {
                   Match {i + 1}{match.map_name ? ` · ${match.map_name}` : ''}
                 </div>
                 <div className="grid grid-cols-[1fr_auto_1fr] gap-2 px-3 py-3 text-xs items-center">
-                  {/* Team A */}
                   <div className={`space-y-1 ${match.winner_team === match.teamA?.name ? 'text-emerald-300' : 'text-slate-200'}`}>
                     <p className="font-semibold truncate">{match.teamA?.name ?? '—'}</p>
                     <div className="flex items-center gap-2 text-[11px] text-slate-400">
@@ -357,14 +354,12 @@ function TournamentResults({ tournament }) {
                       <span className="inline-block text-[9px] font-bold uppercase tracking-wide text-emerald-400 bg-emerald-500/10 rounded px-1.5 py-0.5">Winner</span>
                     )}
                   </div>
-                  {/* Centre VS badge */}
                   <div className="flex flex-col items-center gap-1">
                     <span className="text-[10px] font-bold text-slate-500">VS</span>
                     {match.score_a != null && match.score_b != null && (
                       <span className="text-sm font-black text-slate-100 tabular-nums">{match.score_a}–{match.score_b}</span>
                     )}
                   </div>
-                  {/* Team B */}
                   <div className={`space-y-1 text-right ${match.winner_team === match.teamB?.name ? 'text-emerald-300' : 'text-slate-200'}`}>
                     <p className="font-semibold truncate">{match.teamB?.name ?? '—'}</p>
                     <div className="flex items-center justify-end gap-2 text-[11px] text-slate-400">
@@ -419,25 +414,24 @@ function ResultsPanel({ tournament }) {
   )
 }
 
-// ─── Room Code Card — Fix 2: Realtime subscription replaces 15s polling ────────
+// ─── Room Code Card ────────────────────────────────────────────────────────────
+// Shows room details to any registered player (confirmed or pending).
+// Uses realtime subscription so the code appears instantly when admin reveals it.
 function RoomCodeCard({ tournamentId }) {
   const [roomCode, setRoomCode] = React.useState(undefined)
 
   React.useEffect(() => {
-    // Initial fetch
     async function fetchRoom() {
       const { data } = await supabasePlayer
         .from('room_codes')
         .select('room_id, room_password, is_revealed')
         .eq('tournament_id', tournamentId)
-        // Only single-match tournaments use RoomCodeCard; exclude league rows that have a match_id
         .is('match_id', null)
         .maybeSingle()
       setRoomCode(data || null)
     }
     fetchRoom()
 
-    // Realtime: subscribe to any UPDATE on the row for this tournament
     const channel = supabasePlayer
       .channel(`room_codes:single:${tournamentId}`)
       .on(
@@ -449,7 +443,6 @@ function RoomCodeCard({ tournamentId }) {
           filter: `tournament_id=eq.${tournamentId}`,
         },
         (payload) => {
-          // payload.new is the fresh row after INSERT or UPDATE
           const row = payload.new
           if (row) {
             setRoomCode(row)
@@ -1177,6 +1170,9 @@ export default function TournamentDetails() {
   const isEnded = tournament.status === 'ended'
   const canRegister = regOpen && !isEnded && !authLoading && player && !myReg
 
+  // A player is considered "joined" if they have any registration (pending or confirmed)
+  const hasJoined = !!myReg
+
   return (
     <div className="space-y-4 pb-8">
       <div className="card space-y-2">
@@ -1235,11 +1231,14 @@ export default function TournamentDetails() {
         </div>
       )}
 
+      {/* Room code: show to ALL registered players (pending or confirmed) for single-match tournaments */}
+      {!isLong && hasJoined && (
+        <RoomCodeCard tournamentId={tournamentId} />
+      )}
+
       {isLong && myReg?.status === 'confirmed' && !isEnded && (
         <LongTournamentPanel tournamentId={tournamentId} myReg={myReg} totalRounds={tournament.total_rounds || null} />
       )}
-
-      {!isLong && myReg && !isEnded && <RoomCodeCard tournamentId={tournamentId} />}
 
       {canRegister && (
         <RegistrationForm
