@@ -5,14 +5,20 @@ import { usePlayer } from '../../lib/PlayerContext'
 
 function StatusBadge({ status }) {
   const map = {
-    ongoing:   'bg-blue-500/15 text-blue-300 border-blue-500/30',
-    pending:   'bg-yellow-500/15 text-yellow-300 border-yellow-500/30',
-    completed: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30',
+    live:                 'bg-blue-500/15 text-blue-300 border-blue-500/30',
+    active:               'bg-yellow-500/15 text-yellow-300 border-yellow-500/30',
+    registration_closed:  'bg-amber-500/15 text-amber-300 border-amber-500/30',
+    ended:                'bg-emerald-500/15 text-emerald-300 border-emerald-500/30',
   }
-  const labels = { ongoing: 'Live', pending: 'Upcoming', completed: 'Ended' }
+  const labels = {
+    live:                '● Live',
+    active:              'Upcoming',
+    registration_closed: 'Reg. Closed',
+    ended:               'Ended',
+  }
   return (
     <span className={`inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[11px] font-medium uppercase tracking-wide ${map[status] ?? 'bg-slate-500/15 text-slate-300 border-slate-500/30'}`}>
-      {status === 'ongoing' && <span className="h-1.5 w-1.5 rounded-full bg-blue-400 animate-pulse" />}
+      {status === 'live' && <span className="h-1.5 w-1.5 rounded-full bg-blue-400 animate-pulse" />}
       {labels[status] ?? status}
     </span>
   )
@@ -50,14 +56,17 @@ export function League() {
   }, [profile?.id])
 
   const filtered = tournaments.filter(t => filter === 'all' || t.game_id === filter)
-  const ongoing   = filtered.filter(t => t.status === 'ongoing')
-  const upcoming  = filtered.filter(t => t.status === 'pending')
-  const completed = filtered.filter(t => t.status === 'completed')
 
+  // Canonical status buckets (aligned with DB CHECK constraint)
+  const live       = filtered.filter(t => t.status === 'live')
+  const upcoming   = filtered.filter(t => t.status === 'active' || t.status === 'registration_closed')
+  const completed  = filtered.filter(t => t.status === 'ended')
+
+  // game_id values must match DB exactly (bgmi, free_fire)
   const gameFilters = [
-    { id: 'all', label: 'All Games' },
-    { id: 'bgmi', label: 'BGMI' },
-    { id: 'freefire', label: 'Free Fire' },
+    { id: 'all',       label: 'All Games' },
+    { id: 'bgmi',      label: 'BGMI' },
+    { id: 'free_fire', label: 'Free Fire' },
   ]
 
   function TournamentCard({ t }) {
@@ -68,7 +77,7 @@ export function League() {
         <div className="flex items-start justify-between gap-2">
           <div className="flex-1 min-w-0">
             <p className="text-[11px] font-medium uppercase tracking-widest text-slate-500 mb-1">
-              {t.game_id?.toUpperCase()} · {t.mode_label || t.mode}
+              {t.game_id?.toUpperCase().replace('_', ' ')} · {t.mode_label || t.mode}
             </p>
             <h3 className="text-sm font-semibold text-slate-100 leading-snug">{t.title}</h3>
           </div>
@@ -88,12 +97,12 @@ export function League() {
           ))}
         </div>
 
-        {t.status === 'pending' && (
+        {(t.status === 'active' || t.status === 'registration_closed') && t.start_time && (
           <p className="text-[11px] text-slate-500">
             Starts: {new Date(t.start_time).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' })}
           </p>
         )}
-        {t.status === 'ongoing' && t.total_rounds && (
+        {t.status === 'live' && t.total_rounds && (
           <p className="text-[11px] text-slate-500">
             Round in progress · {slotsLeft > 0 ? `${slotsLeft} slots left` : 'Full'}
           </p>
@@ -103,7 +112,7 @@ export function League() {
           to={`/league/${t.id}`}
           className={`btn-primary w-full text-center text-sm mt-auto ${isRegistered ? 'opacity-90' : ''}`}
         >
-          {isRegistered ? '📋 My Dashboard' : t.status === 'completed' ? 'View Results' : 'View & Register'}
+          {isRegistered ? '📋 My Dashboard' : t.status === 'ended' ? 'View Results' : 'View & Register'}
         </Link>
       </div>
     )
@@ -159,8 +168,8 @@ export function League() {
 
       {/* Sections */}
       {[
-        { title: '🔴 Live Now', items: ongoing },
-        { title: '📅 Upcoming', items: upcoming },
+        { title: '🔴 Live Now',  items: live },
+        { title: '📅 Upcoming',  items: upcoming },
         { title: '✅ Completed', items: completed },
       ].map(({ title, items }) => items.length > 0 && (
         <section key={title} className="space-y-3">
