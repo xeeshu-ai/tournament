@@ -171,3 +171,33 @@ export function calculateBrPoints(kills, position, gameId) {
   // Free Fire
   return Math.round(((k + 1) / p) * 100);
 }
+
+/**
+ * Returns the number of teams per match lobby for a given tournament.
+ *
+ * BGMI: lobby is always 100 players, so teams = 100 ÷ team_size
+ *   Squad (4)  → 25 teams
+ *   Duo   (2)  → 50 teams
+ *   Solo  (1)  → 100 teams
+ *
+ * Free Fire: lobby capacity is stored in players_per_match, so teams = players_per_match ÷ team_size
+ *
+ * Never read players_per_match for BGMI — the admin may have left it null or set
+ * an incorrect value; the engine always uses exactly 100 players.
+ *
+ * @param {{ game_id: string, team_size: number, players_per_match?: number }} tournament
+ * @returns {number|null} teams per match, or null if data is insufficient
+ */
+export function getTeamsPerMatch(tournament) {
+  const teamSize = Number(tournament?.team_size);
+  if (!teamSize || teamSize < 1) return null;
+
+  if (tournament?.game_id === 'bgmi') {
+    return Math.floor(100 / teamSize);
+  }
+
+  // Free Fire (and any future game that uses players_per_match)
+  const ppm = Number(tournament?.players_per_match);
+  if (!ppm || ppm < 1) return null;
+  return Math.floor(ppm / teamSize);
+}

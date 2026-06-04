@@ -2,6 +2,7 @@ import React from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
 import { supabasePlayer } from '../../lib/supabaseClient'
 import { usePlayer } from '../../lib/PlayerContext'
+import { getTeamsPerMatch } from '../../lib/constants'
 
 // ─── helpers ────────────────────────────────────────────────────────────────
 
@@ -467,7 +468,6 @@ function MatchSchedule({ matches, myRegistrationId, myScoresByMatch }) {
         <div key={round} className="card space-y-3">
           <p className="text-[11px] font-semibold uppercase tracking-widest text-slate-500">Round {round}</p>
           {roundMatches.map(m => {
-            // find this player's slot_number for this specific match
             const myScore = myScoresByMatch?.[m.id]
             const mySlot = myScore?.slot_number ?? null
             return (
@@ -493,7 +493,6 @@ export function LeagueTournamentPage() {
   const [allScores, setAllScores] = React.useState([])
   const [myRegistration, setMyRegistration] = React.useState(null)
   const [myScores, setMyScores] = React.useState([])
-  // myScoresByMatch: { [matchId]: scoreRow } for slot lookup
   const [myScoresByMatch, setMyScoresByMatch] = React.useState({})
   const [hostGameProfile, setHostGameProfile] = React.useState(null)
   const [gameProfileState, setGameProfileState] = React.useState('loading')
@@ -558,7 +557,6 @@ export function LeagueTournamentPage() {
       if (myReg) {
         const myTeamScores = flatScores.filter(s => s.team_name === myReg.team_name)
         setMyScores(myTeamScores)
-        // build matchId → scoreRow map for slot lookup
         const byMatch = {}
         myTeamScores.forEach(s => { if (s.match_id) byMatch[s.match_id] = s })
         setMyScoresByMatch(byMatch)
@@ -580,7 +578,6 @@ export function LeagueTournamentPage() {
 
   React.useEffect(() => { load() }, [load])
 
-  // Realtime: refresh matches when any long_br_matches row for this tournament changes
   React.useEffect(() => {
     if (!tournamentId) return
     const channel = supabasePlayer
@@ -614,6 +611,9 @@ export function LeagueTournamentPage() {
       </div>
     )
   }
+
+  // Derive lobby size correctly: BGMI always 100-player engine; FF uses players_per_match
+  const teamsPerMatch = getTeamsPerMatch(tournament)
 
   const profileNotApproved =
     gameProfileState === 'done' &&
@@ -653,6 +653,10 @@ export function LeagueTournamentPage() {
           <div className="flex flex-wrap gap-2 text-[11px]">
             <span className="bg-slate-800 rounded-full px-2.5 py-1 text-slate-400">{tournament.filled_slots || 0}/{tournament.max_slots} teams</span>
             {tournament.total_rounds && <span className="bg-slate-800 rounded-full px-2.5 py-1 text-slate-400">{tournament.total_rounds} rounds</span>}
+            {/* Lobby size chip — game-aware: BGMI uses fixed 100-player engine, FF uses players_per_match */}
+            {teamsPerMatch != null && (
+              <span className="bg-slate-800 rounded-full px-2.5 py-1 text-slate-400">{teamsPerMatch} teams/lobby</span>
+            )}
             {tournament.prize_text && <span className="bg-slate-800 rounded-full px-2.5 py-1 text-slate-400">🏆 {tournament.prize_text}</span>}
             {bracket && <span className="bg-sky-500/15 border border-sky-500/30 rounded-full px-2.5 py-1 text-sky-300">Round {bracket.current_round} active</span>}
           </div>
