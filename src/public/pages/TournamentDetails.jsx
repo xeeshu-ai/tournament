@@ -603,7 +603,13 @@ function LongTournamentPanel({ tournamentId, myReg, totalRounds }) {
 
 export default function TournamentDetails() {
   const { id } = useParams()
-  const { player } = usePlayer()
+
+  // ── FIX: PlayerContext exposes { user, profile, loading } — NOT { player }.
+  // Previously this was `const { player } = usePlayer()` which is always undefined,
+  // so player?.id was always undefined, checkMyReg always bailed early with myReg=null,
+  // hasJoined was always false, and the registration/room-code logic was broken.
+  // We use `profile` as the player row (has .id) and `user` as the auth session user.
+  const { user, profile, loading: authLoading } = usePlayer()
   const { game } = useGame()
 
   const [tournament, setTournament] = React.useState(null)
@@ -671,7 +677,18 @@ export default function TournamentDetails() {
   }, [id])
 
   // ── Check my registration ──
+  // Uses profile.id (the players table row id) to look up game_uid, then checks
+  // tournament_registrations as host or as a teammate.
   React.useEffect(() => {
+    // If auth is still loading, wait — don't run yet
+    if (authLoading) return
+
+    // If no logged-in user at all, immediately mark as not registered
+    if (!user) {
+      setMyReg(null)
+      return
+    }
+
     // BUGFIX: if checkMyReg is slow or fails, myReg stays undefined forever which
     // keeps myRegLoading=true and freezes RoomCodeCard. Add a 5s timeout fallback.
     const timeoutId = setTimeout(() => {
@@ -679,21 +696,22 @@ export default function TournamentDetails() {
     }, 5000)
 
     async function checkMyReg() {
-      if (!player?.id || !id) { clearTimeout(timeoutId); setMyReg(null); return }
+      // Use profile.id (players table PK) to get game_uid
+      if (!profile?.id || !id) { clearTimeout(timeoutId); setMyReg(null); return }
 
-      const { data: profile } = await supabasePlayer
+      const { data: gameProfile } = await supabasePlayer
         .from('player_profiles')
         .select('game_uid')
-        .eq('id', player.id)
+        .eq('id', profile.id)
         .maybeSingle()
 
-      if (!profile?.game_uid) { clearTimeout(timeoutId); setMyReg(null); return }
+      if (!gameProfile?.game_uid) { clearTimeout(timeoutId); setMyReg(null); return }
 
       const { data: asHost } = await supabasePlayer
         .from('tournament_registrations')
         .select('*')
         .eq('tournament_id', id)
-        .eq('host_uid', profile.game_uid)
+        .eq('host_uid', gameProfile.game_uid)
         .not('status', 'in', '("rejected","cancelled")')
         .limit(1)
         .maybeSingle()
@@ -703,7 +721,7 @@ export default function TournamentDetails() {
       const { data: asMember } = await supabasePlayer
         .from('registration_teammates')
         .select('registration_id, game_uid, tournament_registrations!inner(id, team_name, status, host_uid, tournament_id)')
-        .eq('game_uid', profile.game_uid)
+        .eq('game_uid', gameProfile.game_uid)
         .eq('tournament_registrations.tournament_id', id)
         .not('tournament_registrations.status', 'in', '("rejected","cancelled")')
         .limit(1)
@@ -720,7 +738,7 @@ export default function TournamentDetails() {
     }
     checkMyReg()
     return () => clearTimeout(timeoutId)
-  }, [player?.id, id])
+  }, [profile?.id, user, id, authLoading])
 
   if (loading) {
     return (
@@ -747,8 +765,8 @@ export default function TournamentDetails() {
   const isLive = tournament.status === 'live'
   const isBR = tournament.mode === 'br'
   const hasJoined = !!myReg
-  const myRegLoading = myReg === undefined
-  const canRegister = !isEnded && !hasJoined && !myRegLoading
+  const myRegLoading = myReg === undefined || authLoading
+  const canRegister = !!user && !isEnded && !hasJoined && !myRegLoading
 
   const handleQuickRegister = async () => {
     setSubmitting(true)
@@ -832,6 +850,10 @@ export default function TournamentDetails() {
             <SectionCard title="Registration" subtitle="Join status for this tournament.">
               {myRegLoading ? (
                 <div className="flex items-center gap-2 text-sm text-slate-400"><LoadingDots /><span>Checking your registration…</span></div>
+              ) : !user ? (
+                <div className="rounded-xl border border-white/10 bg-white/[0.03] px-4 py-3 text-sm text-slate-300">
+                  Sign in to register for this tournament.
+                </div>
               ) : hasJoined ? (
                 <div className="space-y-3">
                   <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-200">
@@ -856,7 +878,7 @@ export default function TournamentDetails() {
                 </div>
               ) : (
                 <div className="rounded-xl border border-white/10 bg-white/[0.03] px-4 py-3 text-sm text-slate-300">
-                  Registration is not available for you right now.
+                  Registration is not available right now.
                 </div>
               )}
 
