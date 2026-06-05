@@ -604,11 +604,6 @@ function LongTournamentPanel({ tournamentId, myReg, totalRounds }) {
 export default function TournamentDetails() {
   const { id } = useParams()
 
-  // ── FIX: PlayerContext exposes { user, profile, loading } — NOT { player }.
-  // Previously this was `const { player } = usePlayer()` which is always undefined,
-  // so player?.id was always undefined, checkMyReg always bailed early with myReg=null,
-  // hasJoined was always false, and the registration/room-code logic was broken.
-  // We use `profile` as the player row (has .id) and `user` as the auth session user.
   const { user, profile, loading: authLoading } = usePlayer()
   const { game } = useGame()
 
@@ -618,7 +613,7 @@ export default function TournamentDetails() {
   const [submitting, setSubmitting] = React.useState(false)
   const [error, setError] = React.useState('')
   const [success, setSuccess] = React.useState('')
-  const [myReg, setMyReg] = React.useState(undefined) // undefined = loading, null = not registered
+  const [myReg, setMyReg] = React.useState(undefined)
 
   const refetchTournament = React.useCallback(async () => {
     if (!id) return
@@ -648,14 +643,6 @@ export default function TournamentDetails() {
     return () => { mounted = false }
   }, [id])
 
-  // ── Realtime tournament updates ──
-  // BUGFIX: Postgres realtime payloads truncate/omit JSONB columns (single_br_results,
-  // cs_lw_results, tdm_results etc.) — payload.new will have them as null even if the
-  // DB row has real data. Merging payload.new directly would silently overwrite results.
-  // FIX: Always do a full SELECT * refetch on every UPDATE event so we always get
-  // the complete, fresh row including all JSONB columns. This also handles the edge
-  // case where results are saved AFTER the status is already 'ended' — every update
-  // triggers a refetch regardless of which column changed.
   React.useEffect(() => {
     if (!id) return
     let mounted = true
@@ -664,16 +651,13 @@ export default function TournamentDetails() {
       .on(
         'postgres_changes',
         { event: 'UPDATE', schema: 'public', table: 'tournaments', filter: `id=eq.${id}` },
-        async (_payload) => {
+        (payload) => {
           if (!mounted) return
-          // Always full-refetch — never merge payload.new directly because Postgres
-          // realtime truncates JSONB columns and they arrive as null in the payload.
-          const { data } = await supabasePlayer
-            .from('tournaments')
-            .select('*')
-            .eq('id', id)
-            .single()
-          if (mounted && data) setTournament(data)
+          if (payload.new?.status === 'ended') {
+            refetchTournament()
+          } else {
+            setTournament(prev => prev ? { ...prev, ...payload.new } : prev)
+          }
         }
       )
       .subscribe()
@@ -681,33 +665,14 @@ export default function TournamentDetails() {
       mounted = false
       supabasePlayer.removeChannel(channel)
     }
-  }, [id])
+  }, [id, refetchTournament])
 
-  // ── Check my registration ──
-  // Uses profile.id (the players table row id) to look up game_uid, then checks
-  // tournament_registrations as host or as a teammate.
-  //
-  // BUGFIX: if checkMyReg() is slow or fails, myReg stays undefined forever which
-  // keeps myRegLoading=true and freezes RoomCodeCard in a permanent loading state.
-  // FIX: Add a 5-second timeout that falls back myReg to null so the UI unblocks.
   React.useEffect(() => {
-    // If auth is still loading, wait — don't run yet
     if (authLoading) return
-
-    // If no logged-in user at all, immediately mark as not registered
-    if (!user) {
-      setMyReg(null)
-      return
-    }
-
-    // 5-second safety timeout: if checkMyReg hasn't resolved, unblock the UI
-    const timeoutId = setTimeout(() => {
-      setMyReg(prev => prev === undefined ? null : prev)
-    }, 5000)
+    if (!user) { setMyReg(null); return }
 
     async function checkMyReg() {
-      // Use profile.id (players table PK) to get game_uid
-      if (!profile?.id || !id) { clearTimeout(timeoutId); setMyReg(null); return }
+      if (!profile?.id || !id) { setMyReg(null); return }
 
       const { data: gameProfile } = await supabasePlayer
         .from('player_profiles')
@@ -715,7 +680,7 @@ export default function TournamentDetails() {
         .eq('id', profile.id)
         .maybeSingle()
 
-      if (!gameProfile?.game_uid) { clearTimeout(timeoutId); setMyReg(null); return }
+      if (!gameProfile?.game_uid) { setMyReg(null); return }
 
       const { data: asHost } = await supabasePlayer
         .from('tournament_registrations')
@@ -726,7 +691,7 @@ export default function TournamentDetails() {
         .limit(1)
         .maybeSingle()
 
-      if (asHost) { clearTimeout(timeoutId); setMyReg(asHost); return }
+      if (asHost) { setMyReg(asHost); return }
 
       const { data: asMember } = await supabasePlayer
         .from('registration_teammates')
@@ -737,8 +702,6 @@ export default function TournamentDetails() {
         .limit(1)
         .maybeSingle()
 
-      clearTimeout(timeoutId)
-
       if (asMember?.tournament_registrations) {
         setMyReg(asMember.tournament_registrations)
       } else {
@@ -747,8 +710,6 @@ export default function TournamentDetails() {
     }
 
     checkMyReg()
-
-    return () => clearTimeout(timeoutId)
   }, [authLoading, user, profile?.id, id])
 
   const handleRegister = async (formData) => {
@@ -783,7 +744,6 @@ export default function TournamentDetails() {
       } else {
         setSuccess('Registration submitted! Await organizer confirmation.')
         setShowRegForm(false)
-        // Re-check my registration after successful submit
         const { data: newReg } = await supabasePlayer
           .from('tournament_registrations')
           .select('*')
@@ -826,7 +786,6 @@ export default function TournamentDetails() {
   const isLong = tournament.format === 'long'
   const isBR = tournament.mode === 'br'
   const hasJoined = !!myReg && myReg.status !== 'rejected' && myReg.status !== 'cancelled'
-  // myRegLoading: true only while myReg is still undefined (initial fetch in progress)
   const myRegLoading = myReg === undefined
 
   const statusColors = {
