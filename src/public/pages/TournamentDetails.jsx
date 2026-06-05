@@ -652,16 +652,20 @@ export default function TournamentDetails() {
   // BUGFIX: Postgres realtime payloads truncate/omit JSONB columns (single_br_results,
   // cs_lw_results, tdm_results etc.) — payload.new will have them as null even if the
   // DB row has real data. Merging payload.new directly would silently overwrite results.
-  // Solution: always do a full SELECT * refetch on every UPDATE event so we always
-  // get the complete, fresh row including all JSONB columns.
+  // FIX: Always do a full SELECT * refetch on every UPDATE event so we always get
+  // the complete, fresh row including all JSONB columns. This also handles the edge
+  // case where results are saved AFTER the status is already 'ended' — every update
+  // triggers a refetch regardless of which column changed.
   React.useEffect(() => {
     if (!id) return
+    let mounted = true
     const channel = supabasePlayer
       .channel(`tournament:${id}`)
       .on(
         'postgres_changes',
         { event: 'UPDATE', schema: 'public', table: 'tournaments', filter: `id=eq.${id}` },
         async (_payload) => {
+          if (!mounted) return
           // Always full-refetch — never merge payload.new directly because Postgres
           // realtime truncates JSONB columns and they arrive as null in the payload.
           const { data } = await supabasePlayer
@@ -669,16 +673,23 @@ export default function TournamentDetails() {
             .select('*')
             .eq('id', id)
             .single()
-          if (data) setTournament(data)
+          if (mounted && data) setTournament(data)
         }
       )
       .subscribe()
-    return () => { supabasePlayer.removeChannel(channel) }
+    return () => {
+      mounted = false
+      supabasePlayer.removeChannel(channel)
+    }
   }, [id])
 
   // ── Check my registration ──
   // Uses profile.id (the players table row id) to look up game_uid, then checks
   // tournament_registrations as host or as a teammate.
+  //
+  // BUGFIX: if checkMyReg() is slow or fails, myReg stays undefined forever which
+  // keeps myRegLoading=true and freezes RoomCodeCard in a permanent loading state.
+  // FIX: Add a 5-second timeout that falls back myReg to null so the UI unblocks.
   React.useEffect(() => {
     // If auth is still loading, wait — don't run yet
     if (authLoading) return
@@ -689,8 +700,7 @@ export default function TournamentDetails() {
       return
     }
 
-    // BUGFIX: if checkMyReg is slow or fails, myReg stays undefined forever which
-    // keeps myRegLoading=true and freezes RoomCodeCard. Add a 5s timeout fallback.
+    // 5-second safety timeout: if checkMyReg hasn't resolved, unblock the UI
     const timeoutId = setTimeout(() => {
       setMyReg(prev => prev === undefined ? null : prev)
     }, 5000)
@@ -727,179 +737,315 @@ export default function TournamentDetails() {
         .limit(1)
         .maybeSingle()
 
+      clearTimeout(timeoutId)
+
       if (asMember?.tournament_registrations) {
-        clearTimeout(timeoutId)
         setMyReg(asMember.tournament_registrations)
-        return
+      } else {
+        setMyReg(null)
+      }
+    }
+
+    checkMyReg()
+
+    return () => clearTimeout(timeoutId)
+  }, [authLoading, user, profile?.id, id])
+
+  const handleRegister = async (formData) => {
+    if (!user || !profile?.id) { setError('You must be logged in to register.'); return }
+    setSubmitting(true)
+    setError('')
+    setSuccess('')
+
+    try {
+      const { data: gameProfile } = await supabasePlayer
+        .from('player_profiles')
+        .select('game_uid, display_name')
+        .eq('id', profile.id)
+        .maybeSingle()
+
+      if (!gameProfile?.game_uid) { setError('Complete your game profile before registering.'); setSubmitting(false); return }
+
+      const payload = {
+        tournament_id: id,
+        host_uid: gameProfile.game_uid,
+        team_name: formData.team_name || gameProfile.display_name || 'My Team',
+        status: 'pending',
+        ...formData
       }
 
-      clearTimeout(timeoutId)
-      setMyReg(null)
-    }
-    checkMyReg()
-    return () => clearTimeout(timeoutId)
-  }, [profile?.id, user, id, authLoading])
+      const { error: regError } = await supabasePlayer
+        .from('tournament_registrations')
+        .insert(payload)
 
-  if (loading) {
+      if (regError) {
+        setError(regError.message || 'Registration failed. Please try again.')
+      } else {
+        setSuccess('Registration submitted! Await organizer confirmation.')
+        setShowRegForm(false)
+        // Re-check my registration after successful submit
+        const { data: newReg } = await supabasePlayer
+          .from('tournament_registrations')
+          .select('*')
+          .eq('tournament_id', id)
+          .eq('host_uid', gameProfile.game_uid)
+          .not('status', 'in', '("rejected","cancelled")')
+          .limit(1)
+          .maybeSingle()
+        setMyReg(newReg || null)
+      }
+    } catch (err) {
+      setError('Unexpected error. Please try again.')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  if (loading || authLoading) {
     return (
-      <div className="space-y-5">
-        <SectionCard title="Tournament details" subtitle="Loading tournament data.">
-          <div className="flex items-center gap-2 text-sm text-slate-400"><LoadingDots /><span>Loading tournament…</span></div>
-        </SectionCard>
+      <div className="min-h-screen bg-[#0d1117] flex items-center justify-center">
+        <div className="flex flex-col items-center gap-4">
+          <LoadingDots />
+          <p className="text-sm text-slate-400">Loading tournament…</p>
+        </div>
       </div>
     )
   }
 
   if (!tournament) {
     return (
-      <div className="space-y-5">
-        <SectionCard title="Tournament details" subtitle="This tournament could not be loaded.">
-          <div className="rounded-xl border border-rose-500/20 bg-rose-500/10 px-4 py-3 text-sm text-rose-200">Tournament not found.</div>
-        </SectionCard>
+      <div className="min-h-screen bg-[#0d1117] flex items-center justify-center">
+        <div className="text-center space-y-2">
+          <p className="text-slate-300 font-semibold">Tournament not found</p>
+          <p className="text-sm text-slate-500">This tournament may have been removed or the link is invalid.</p>
+        </div>
       </div>
     )
   }
 
   const isLong = tournament.format === 'long'
-  const isEnded = tournament.status === 'ended'
-  const isLive = tournament.status === 'live'
   const isBR = tournament.mode === 'br'
-  const hasJoined = !!myReg
-  const myRegLoading = myReg === undefined || authLoading
-  const canRegister = !!user && !isEnded && !hasJoined && !myRegLoading
+  const hasJoined = !!myReg && myReg.status !== 'rejected' && myReg.status !== 'cancelled'
+  // myRegLoading: true only while myReg is still undefined (initial fetch in progress)
+  const myRegLoading = myReg === undefined
 
-  const handleQuickRegister = async () => {
-    setSubmitting(true)
-    setError('')
-    setSuccess('')
-    try {
-      setShowRegForm(true)
-    } finally {
-      setSubmitting(false)
-    }
+  const statusColors = {
+    upcoming: 'border-sky-500/30 bg-sky-500/10 text-sky-300',
+    ongoing: 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300',
+    ended: 'border-slate-500/30 bg-slate-500/10 text-slate-300',
+    cancelled: 'border-rose-500/30 bg-rose-500/10 text-rose-300',
+  }
+  const statusClass = statusColors[tournament.status] || statusColors.upcoming
+
+  const canRegister =
+    tournament.status === 'upcoming' &&
+    !hasJoined &&
+    !myRegLoading &&
+    user
+
+  return (
+    <div className="min-h-screen bg-[#0d1117] text-slate-100">
+      {/* Header */}
+      <div className="border-b border-white/10 bg-[#0d1117]/95 backdrop-blur-md sticky top-0 z-20">
+        <div className="mx-auto max-w-4xl px-4 py-4 flex items-center justify-between gap-4">
+          <div className="min-w-0">
+            <h1 className="truncate text-base font-semibold text-slate-100">{tournament.name}</h1>
+            <div className="mt-1 flex items-center gap-2 flex-wrap">
+              <span className={`rounded-full border px-2.5 py-0.5 text-[11px] font-semibold ${statusClass}`}>
+                {tournament.status || 'upcoming'}
+              </span>
+              {game?.name && (
+                <span className="rounded-full border border-white/10 bg-white/[0.04] px-2.5 py-0.5 text-[11px] text-slate-300">
+                  {game.name}
+                </span>
+              )}
+              {tournament.mode && (
+                <span className="rounded-full border border-white/10 bg-white/[0.04] px-2.5 py-0.5 text-[11px] text-slate-300">
+                  {getModeLabel(tournament.mode)}
+                </span>
+              )}
+            </div>
+          </div>
+
+          {canRegister && (
+            <button
+              onClick={() => setShowRegForm(s => !s)}
+              className="shrink-0 rounded-xl bg-sky-500 px-4 py-2 text-sm font-semibold text-white hover:bg-sky-400 active:bg-sky-600"
+            >
+              {showRegForm ? 'Cancel' : 'Register'}
+            </button>
+          )}
+
+          {hasJoined && (
+            <span className="shrink-0 rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-2 text-sm font-semibold text-emerald-300">
+              Joined ✓
+            </span>
+          )}
+        </div>
+      </div>
+
+      <div className="mx-auto max-w-4xl px-4 py-6 space-y-5">
+        {/* Feedback banners */}
+        {error && (
+          <div className="rounded-xl border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-sm text-rose-200">
+            {error}
+          </div>
+        )}
+        {success && (
+          <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-200">
+            {success}
+          </div>
+        )}
+
+        {/* Registration form */}
+        {showRegForm && canRegister && (
+          <RegistrationForm
+            tournament={tournament}
+            onSubmit={handleRegister}
+            submitting={submitting}
+            onCancel={() => setShowRegForm(false)}
+          />
+        )}
+
+        {/* Core info */}
+        <SectionCard title="Tournament info" subtitle="Key details and configuration for this event.">
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+            <DetailRow label="Format" value={isLong ? 'Long (multi-round)' : 'Short (single BR)'} />
+            <DetailRow label="Mode" value={getModeLabel(tournament.mode)} />
+            <DetailRow label="Team size" value={String(tournament.team_size || '—')} />
+            {tournament.max_teams && <DetailRow label="Max teams" value={String(tournament.max_teams)} />}
+            {tournament.prize_pool && <DetailRow label="Prize pool" value={String(tournament.prize_pool)} highlight />}
+            {tournament.entry_fee != null && <DetailRow label="Entry fee" value={tournament.entry_fee === 0 ? 'Free' : String(tournament.entry_fee)} />}
+            {tournament.scheduled_at && <DetailRow label="Scheduled" value={new Date(tournament.scheduled_at).toLocaleString()} />}
+          </div>
+          {tournament.description && (
+            <p className="mt-4 text-sm text-slate-300 leading-relaxed">{tournament.description}</p>
+          )}
+        </SectionCard>
+
+        {/* Stats pills */}
+        <div className="flex flex-wrap gap-2">
+          <StatPill label="Status" value={tournament.status || 'upcoming'} tone={tournament.status === 'ongoing' ? 'success' : tournament.status === 'ended' ? 'default' : tournament.status === 'cancelled' ? 'danger' : 'default'} />
+          {tournament.team_size && <StatPill label="Team size" value={`${tournament.team_size}v${tournament.team_size}`} />}
+          {tournament.max_teams && <StatPill label="Max teams" value={String(tournament.max_teams)} />}
+        </div>
+
+        {/* BR Rules */}
+        {isBR && <BRRulesSection gameName={game?.name} />}
+
+        {/* Room code — only for non-long, non-cancelled tournaments */}
+        {!isLong && tournament.status !== 'cancelled' && (
+          <RoomCodeCard
+            tournamentId={id}
+            hasJoined={hasJoined}
+            myRegLoading={myRegLoading}
+          />
+        )}
+
+        {/* Long tournament bracket panel */}
+        {isLong && (
+          <LongTournamentPanel
+            tournamentId={id}
+            myReg={myReg || null}
+            totalRounds={tournament.total_rounds}
+          />
+        )}
+
+        {/* Results panel — shows when ended or results exist */}
+        <ResultsPanel tournament={tournament} />
+
+        {/* Results snapshot summary card */}
+        <ResultsSummaryCard tournament={tournament} />
+
+        {/* Registered teams list */}
+        <RegisteredTeamsList tournamentId={id} teamSize={tournament.team_size} />
+      </div>
+    </div>
+  )
+}
+
+// ── Registration form ────────────────────────────────────────────────────────
+function RegistrationForm({ tournament, onSubmit, submitting, onCancel }) {
+  const teamSize = tournament?.team_size || 1
+  const isSolo = teamSize === 1
+
+  const [teamName, setTeamName] = React.useState('')
+  const [teammates, setTeammates] = React.useState(
+    Array.from({ length: Math.max(0, teamSize - 1) }, () => ({ name: '', uid: '' }))
+  )
+
+  const updateTeammate = (idx, field, value) => {
+    setTeammates(prev => prev.map((t, i) => i === idx ? { ...t, [field]: value } : t))
+  }
+
+  const handleSubmit = (e) => {
+    e.preventDefault()
+    const teammateUids = teammates.map(t => t.uid).filter(Boolean)
+    onSubmit({
+      team_name: teamName.trim() || undefined,
+      teammate_uids: teammateUids,
+      teammates: teammates.filter(t => t.uid || t.name)
+    })
   }
 
   return (
-    <div className="space-y-5">
-      <section className="relative overflow-hidden rounded-3xl border border-sky-500/20 bg-[radial-gradient(circle_at_top_right,rgba(56,189,248,0.16),transparent_32%),linear-gradient(180deg,#0f172a_0%,#0b1220_100%)] p-6 shadow-[0_30px_80px_-45px_rgba(14,165,233,0.45)]">
-        <div className="absolute inset-0 bg-[linear-gradient(120deg,transparent,rgba(255,255,255,0.03),transparent)]" />
-        <div className="relative z-10 grid gap-5 lg:grid-cols-[1.45fr_0.9fr] lg:items-start">
+    <SectionCard title="Register for this tournament" subtitle="Fill in your team details to submit a registration.">
+      <form onSubmit={handleSubmit} className="space-y-4">
+        {!isSolo && (
           <div>
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="rounded-full border border-sky-500/20 bg-sky-500/10 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.2em] text-sky-300">{getModeLabel(tournament.mode)}</span>
-              <span className={`rounded-full px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] ${isEnded ? 'border border-rose-500/30 bg-rose-500/10 text-rose-300' : isLive ? 'border border-emerald-500/30 bg-emerald-500/10 text-emerald-300' : 'border border-amber-500/30 bg-amber-500/10 text-amber-300'}`}>{tournament.status || 'upcoming'}</span>
-              {isLong ? <span className="rounded-full border border-violet-500/30 bg-violet-500/10 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-violet-300">Long format</span> : null}
+            <label className="block text-xs text-slate-400 mb-1">Team name</label>
+            <input
+              type="text"
+              value={teamName}
+              onChange={e => setTeamName(e.target.value)}
+              placeholder="Enter your team name"
+              className="w-full rounded-xl border border-white/10 bg-white/[0.04] px-4 py-2.5 text-sm text-slate-100 placeholder-slate-500 focus:border-sky-500/50 focus:outline-none focus:ring-1 focus:ring-sky-500/30"
+            />
+          </div>
+        )}
+
+        {teammates.map((tm, idx) => (
+          <div key={idx} className="grid gap-3 sm:grid-cols-2">
+            <div>
+              <label className="block text-xs text-slate-400 mb-1">Teammate {idx + 1} — In-game name</label>
+              <input
+                type="text"
+                value={tm.name}
+                onChange={e => updateTeammate(idx, 'name', e.target.value)}
+                placeholder="In-game name"
+                className="w-full rounded-xl border border-white/10 bg-white/[0.04] px-4 py-2.5 text-sm text-slate-100 placeholder-slate-500 focus:border-sky-500/50 focus:outline-none focus:ring-1 focus:ring-sky-500/30"
+              />
             </div>
-
-            <h1 className="mt-4 text-3xl font-bold tracking-tight text-white sm:text-4xl">{tournament.title}</h1>
-            <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-300">{tournament.description || 'Join the tournament, track your registration status, and view room details and published results from one place.'}</p>
-
-            <div className="mt-5 flex flex-wrap gap-2">
-              <StatPill label="Entry" value={tournament.entry_fee ? `₹${tournament.entry_fee}` : 'Free'} />
-              <StatPill label="Slots" value={`${tournament.filled_slots || 0}/${tournament.max_slots || 0}`} />
-              <StatPill label="Team size" value={tournament.team_size || 1} />
-              {tournament.prize_pool ? <StatPill label="Prize" value={`₹${tournament.prize_pool}`} tone="success" /> : null}
+            <div>
+              <label className="block text-xs text-slate-400 mb-1">Teammate {idx + 1} — Game UID</label>
+              <input
+                type="text"
+                value={tm.uid}
+                onChange={e => updateTeammate(idx, 'uid', e.target.value)}
+                placeholder="Game UID"
+                className="w-full rounded-xl border border-white/10 bg-white/[0.04] px-4 py-2.5 text-sm text-slate-100 placeholder-slate-500 focus:border-sky-500/50 focus:outline-none focus:ring-1 focus:ring-sky-500/30"
+              />
             </div>
           </div>
+        ))}
 
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-1">
-            <DetailRow label="Game" value={game?.name || tournament.game_name || '—'} highlight />
-            <DetailRow label="Start time" value={tournament.start_time ? new Date(tournament.start_time).toLocaleString() : '—'} />
-            <DetailRow label="Registration" value={tournament.registration_status || '—'} />
-            <DetailRow label="Format" value={isLong ? 'Long tournament' : 'Single match'} />
-          </div>
+        <div className="flex gap-3 pt-2">
+          <button
+            type="submit"
+            disabled={submitting}
+            className="rounded-xl bg-sky-500 px-5 py-2.5 text-sm font-semibold text-white hover:bg-sky-400 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {submitting ? 'Submitting…' : 'Submit registration'}
+          </button>
+          <button
+            type="button"
+            onClick={onCancel}
+            className="rounded-xl border border-white/10 px-5 py-2.5 text-sm font-semibold text-slate-300 hover:bg-white/[0.04]"
+          >
+            Cancel
+          </button>
         </div>
-      </section>
-
-      <section className="grid gap-5 xl:grid-cols-[1.15fr_0.85fr]">
-        <div className="space-y-5">
-          <SectionCard title="Tournament info" subtitle="Core event details and your registration access.">
-            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-              <DetailRow label="Mode" value={getModeLabel(tournament.mode)} />
-              <DetailRow label="Map / lobby" value={tournament.map_name || tournament.tdm_map || '—'} />
-              <DetailRow label="Kill target" value={tournament.kill_target || '—'} />
-              <DetailRow label="Per-kill points" value={tournament.per_kill_points || '—'} />
-              <DetailRow label="Placement points" value={tournament.placement_points ? 'Enabled' : '—'} />
-              <DetailRow label="Rounds" value={tournament.total_rounds || (isLong ? 'Multi-round' : 'Single')} />
-            </div>
-          </SectionCard>
-
-          <ResultsPanel tournament={tournament} />
-          <ResultsSummaryCard tournament={tournament} />
-          {isBR && <BRRulesSection gameName={game?.name} />}
-
-          {!isLong && (
-            <RoomCodeCard
-              tournamentId={tournament.id}
-              hasJoined={hasJoined}
-              myRegLoading={myRegLoading}
-            />
-          )}
-
-          {isLong && (isLive || isEnded) && myReg !== undefined && (
-            <LongTournamentPanel
-              tournamentId={tournament.id}
-              myReg={myReg}
-              totalRounds={tournament.total_rounds}
-            />
-          )}
-        </div>
-
-        <div className="space-y-5">
-          {!isLong && (
-            <SectionCard title="Registration" subtitle="Join status for this tournament.">
-              {myRegLoading ? (
-                <div className="flex items-center gap-2 text-sm text-slate-400"><LoadingDots /><span>Checking your registration…</span></div>
-              ) : !user ? (
-                <div className="rounded-xl border border-white/10 bg-white/[0.03] px-4 py-3 text-sm text-slate-300">
-                  Sign in to register for this tournament.
-                </div>
-              ) : hasJoined ? (
-                <div className="space-y-3">
-                  <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-200">
-                    You have already joined this tournament.
-                  </div>
-                  <div className="grid gap-3 sm:grid-cols-2">
-                    <DetailRow label="Team" value={myReg.team_name} highlight />
-                    <DetailRow label="Status" value={myReg.status === 'confirmed' ? 'Confirmed' : 'Pending'} />
-                  </div>
-                </div>
-              ) : canRegister ? (
-                <div className="space-y-3">
-                  <p className="text-sm text-slate-300">You are eligible to register for this tournament now.</p>
-                  <button
-                    type="button"
-                    onClick={handleQuickRegister}
-                    disabled={submitting}
-                    className="inline-flex items-center justify-center rounded-xl border border-sky-500/20 bg-sky-500/15 px-4 py-2.5 text-sm font-semibold text-sky-300 transition hover:bg-sky-500/25 disabled:opacity-60"
-                  >
-                    {submitting ? 'Opening…' : 'Join tournament'}
-                  </button>
-                </div>
-              ) : (
-                <div className="rounded-xl border border-white/10 bg-white/[0.03] px-4 py-3 text-sm text-slate-300">
-                  Registration is not available right now.
-                </div>
-              )}
-
-              {error ? <div className="mt-3 rounded-xl border border-rose-500/20 bg-rose-500/10 px-4 py-3 text-sm text-rose-200">{error}</div> : null}
-              {success ? <div className="mt-3 rounded-xl border border-emerald-500/20 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-200">{success}</div> : null}
-            </SectionCard>
-          ) : null}
-
-          <SectionCard title="Status summary" subtitle="Live state and quick checks.">
-            <div className="flex flex-wrap gap-2">
-              <StatPill label="Tournament" value={tournament.status || 'upcoming'} tone={isEnded ? 'danger' : isLive ? 'success' : 'warning'} />
-              <StatPill label="Registration" value={tournament.registration_status || 'closed'} tone={tournament.registration_status === 'open' ? 'success' : 'warning'} />
-              <StatPill label="Joined" value={myRegLoading ? 'Checking' : hasJoined ? 'Yes' : 'No'} tone={hasJoined ? 'success' : 'default'} />
-            </div>
-          </SectionCard>
-        </div>
-      </section>
-
-      {/* ── REGISTERED TEAMS LIST ── */}
-      <RegisteredTeamsList tournamentId={tournament.id} teamSize={tournament.team_size} />
-
-    </div>
+      </form>
+    </SectionCard>
   )
 }
