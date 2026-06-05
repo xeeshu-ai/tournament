@@ -578,6 +578,9 @@ function CopyButton({ text }) {
 }
 
 // ─── Room Code Card ────────────────────────────────────────────────────────────
+// FIX: removed `.is('match_id', null)` filter — query now fetches the latest
+// room code for the tournament regardless of whether match_id is set.
+// Also waits for myRegLoading to resolve before showing locked/unlocked state.
 function RoomCodeCard({ tournamentId, hasJoined, myRegLoading }) {
   const [roomCode, setRoomCode] = React.useState(undefined)
   const [showPassword, setShowPassword] = React.useState(false)
@@ -588,7 +591,8 @@ function RoomCodeCard({ tournamentId, hasJoined, myRegLoading }) {
         .from('room_codes')
         .select('room_id, room_password, is_revealed')
         .eq('tournament_id', tournamentId)
-        .is('match_id', null)
+        .order('created_at', { ascending: false })
+        .limit(1)
         .maybeSingle()
       setRoomCode(data || null)
     }
@@ -605,11 +609,10 @@ function RoomCodeCard({ tournamentId, hasJoined, myRegLoading }) {
           filter: `tournament_id=eq.${tournamentId}`,
         },
         (payload) => {
-          const row = payload.new
-          if (row) {
-            setRoomCode(row)
-          } else if (payload.eventType === 'DELETE') {
+          if (payload.eventType === 'DELETE') {
             setRoomCode(null)
+          } else if (payload.new) {
+            setRoomCode(payload.new)
           }
         }
       )
@@ -1270,6 +1273,16 @@ export default function TournamentDetails() {
   const [myProfile, setMyProfile] = React.useState(null)
   const [showRegForm, setShowRegForm] = React.useState(false)
 
+  // ── Helper: full fetch of tournament row ──
+  const refetchTournament = React.useCallback(async () => {
+    const { data } = await supabasePlayer
+      .from('tournaments')
+      .select('*')
+      .eq('id', id)
+      .single()
+    if (data) setTournament(data)
+  }, [id])
+
   // ── Fetch tournament ──
   React.useEffect(() => {
     async function load() {
@@ -1292,9 +1305,9 @@ export default function TournamentDetails() {
   }, [id])
 
   // ── Realtime tournament updates ──
-  // FIX: merge payload.new into existing state so JSONB fields
-  // (single_br_results, cs_lw_results, tdm_results) are never lost
-  // when realtime sends a partial row.
+  // FIX: when status changes to 'ended', do a full re-fetch so JSONB result
+  // columns (single_br_results, cs_lw_results, tdm_results) are always complete.
+  // For other updates, merge payload.new into existing state.
   React.useEffect(() => {
     if (!id) return
     const channel = supabasePlayer
@@ -1302,8 +1315,18 @@ export default function TournamentDetails() {
       .on(
         'postgres_changes',
         { event: 'UPDATE', schema: 'public', table: 'tournaments', filter: `id=eq.${id}` },
-        (payload) => {
-          if (payload.new) {
+        async (payload) => {
+          if (!payload.new) return
+          // If tournament just ended, do a full re-fetch to get all JSONB result columns
+          if (payload.new.status === 'ended') {
+            const { data } = await supabasePlayer
+              .from('tournaments')
+              .select('*')
+              .eq('id', id)
+              .single()
+            if (data) setTournament(data)
+          } else {
+            // For other updates (status changes, room code reveals, etc.) merge safely
             setTournament(prev => prev ? { ...prev, ...payload.new } : payload.new)
           }
         }
@@ -1350,7 +1373,7 @@ export default function TournamentDetails() {
 
       if (!profile?.game_uid) { setMyReg(null); return }
 
-      // Check as host
+      // Check as host — scoped to this tournament
       const { data: asHost } = await supabasePlayer
         .from('tournament_registrations')
         .select('id, team_name, status, host_uid')
@@ -1361,8 +1384,8 @@ export default function TournamentDetails() {
 
       if (asHost) { setMyReg(asHost); return }
 
-      // FIX: filter registration_members by tournament via join —
-      // avoids picking up registrations from other tournaments.
+      // FIX: use !inner join to filter registration_members by tournament_id —
+      // prevents picking up registrations from other tournaments.
       const { data: asMember } = await supabasePlayer
         .from('registration_members')
         .select('registration_id, game_uid, tournament_registrations!inner(id, team_name, status, host_uid, tournament_id)')
@@ -1518,7 +1541,7 @@ export default function TournamentDetails() {
       {/* ── RESULTS (when ended or results exist) ── */}
       <ResultsPanel tournament={tournament} />
 
-      {/* ── ROOM CODE (for non-long tournaments — wait for reg check before rendering) ── */}
+      {/* ── ROOM CODE (for non-long tournaments — always render, waits for reg check) ── */}
       {!isLong && (
         <RoomCodeCard
           tournamentId={tournament.id}
