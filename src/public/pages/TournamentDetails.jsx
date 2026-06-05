@@ -382,7 +382,6 @@ function TournamentResults({ tournament }) {
   const isCSorLW = tournament.mode === 'cs' || tournament.mode === 'lw'
   const isTDM = tournament.mode === 'tdm'
 
-  // FIX: Show a clear "ended" message even when no results data yet
   const hasAnyResults =
     (isBR && Array.isArray(tournament.single_br_results) && tournament.single_br_results.length > 0) ||
     (isCSorLW && tournament.cs_lw_results?.matches?.length > 0) ||
@@ -443,7 +442,6 @@ function TournamentResults({ tournament }) {
         </div>
       )}
 
-      {/* FIX: show "coming soon" only when tournament is ended but no results posted yet */}
       {!hasAnyResults && (
         <p className="text-xs text-slate-400">Results will be posted shortly. Check back soon!</p>
       )}
@@ -525,7 +523,6 @@ function TournamentResults({ tournament }) {
 }
 
 // ─── Results Panel ─────────────────────────────────────────────────────────────
-// FIX: Always show ResultsPanel when status is 'ended', regardless of results data
 function ResultsPanel({ tournament }) {
   const isBR = tournament.mode === 'br'
   const isCSorLW = tournament.mode === 'cs' || tournament.mode === 'lw'
@@ -581,8 +578,6 @@ function CopyButton({ text }) {
 }
 
 // ─── Room Code Card ────────────────────────────────────────────────────────────
-// FIX: Show room code card even when tournament is ended (removed isEnded guard)
-// hasJoined = player has a registration (pending or confirmed)
 function RoomCodeCard({ tournamentId, hasJoined }) {
   const [roomCode, setRoomCode] = React.useState(undefined)
   const [showPassword, setShowPassword] = React.useState(false)
@@ -1311,7 +1306,6 @@ export default function TournamentDetails() {
   }, [id])
 
   // ── Check my registration ──
-  // FIX: properly check registration by tournament_id + host_uid OR as a member
   React.useEffect(() => {
     async function checkMyReg() {
       if (!player?.id || !id) { setMyReg(null); return }
@@ -1514,10 +1508,10 @@ export default function TournamentDetails() {
         )}
       </section>
 
-      {/* ── RESULTS (when ended) ── */}
+      {/* ── RESULTS (when ended or results exist) ── */}
       <ResultsPanel tournament={tournament} />
 
-      {/* ── ROOM CODE (for non-long tournaments — show regardless of ended status for registered players) ── */}
+      {/* ── ROOM CODE (for non-long tournaments — always shown so registered players can see it) ── */}
       {!isLong && (
         <RoomCodeCard
           tournamentId={tournament.id}
@@ -1537,8 +1531,12 @@ export default function TournamentDetails() {
         />
       )}
 
-      {/* ── REGISTRATION SECTION ── */}
-      {!isEnded && !isLong && (
+      {/* ── REGISTRATION SECTION ──
+          FIXED: Show registration status for ALL statuses (including ended).
+          Only hide the Register button/form when tournament is ended or not open.
+          Registered players always see their registration info.
+      ── */}
+      {!isLong && (
         <section className="card space-y-4" id="tournament-register">
           {myRegLoading ? (
             <div className="flex items-center gap-2 text-[11px] text-slate-500 animate-pulse">
@@ -1546,6 +1544,7 @@ export default function TournamentDetails() {
               Checking registration…
             </div>
           ) : hasJoined ? (
+            /* ── Already registered — always show this regardless of status ── */
             <div className="space-y-2">
               <div className="flex items-center gap-2">
                 <span className="text-base">✅</span>
@@ -1564,7 +1563,11 @@ export default function TournamentDetails() {
                 </div>
               </div>
             </div>
+          ) : isEnded ? (
+            /* ── Tournament ended, not registered ── */
+            <p className="text-xs text-slate-500 text-center py-2">This tournament has ended.</p>
           ) : isOpen ? (
+            /* ── Registration open, not yet registered ── */
             !player ? (
               <div className="space-y-2 text-center py-2">
                 <p className="text-xs text-slate-400">Sign in to register for this tournament.</p>
@@ -1587,7 +1590,6 @@ export default function TournamentDetails() {
                   profile={myProfile}
                   onSuccess={() => {
                     setShowRegForm(false)
-                    // Re-fetch registration
                     setMyReg(undefined)
                   }}
                 />
@@ -1607,6 +1609,7 @@ export default function TournamentDetails() {
               </div>
             )
           ) : isClosed ? (
+            /* ── Registration closed, not registered ── */
             <p className="text-xs text-slate-500 text-center py-2">Registration is closed for this tournament.</p>
           ) : null}
         </section>
