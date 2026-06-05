@@ -578,7 +578,7 @@ function CopyButton({ text }) {
 }
 
 // ─── Room Code Card ────────────────────────────────────────────────────────────
-function RoomCodeCard({ tournamentId, hasJoined }) {
+function RoomCodeCard({ tournamentId, hasJoined, myRegLoading }) {
   const [roomCode, setRoomCode] = React.useState(undefined)
   const [showPassword, setShowPassword] = React.useState(false)
 
@@ -618,8 +618,8 @@ function RoomCodeCard({ tournamentId, hasJoined }) {
     return () => { supabasePlayer.removeChannel(channel) }
   }, [tournamentId])
 
-  // ── Loading state ──
-  if (roomCode === undefined) {
+  // ── Loading state (room OR registration still loading) ──
+  if (roomCode === undefined || myRegLoading) {
     return (
       <div className="card space-y-2" id="tournament-room">
         <div className="flex items-center gap-2">
@@ -1292,6 +1292,9 @@ export default function TournamentDetails() {
   }, [id])
 
   // ── Realtime tournament updates ──
+  // FIX: merge payload.new into existing state so JSONB fields
+  // (single_br_results, cs_lw_results, tdm_results) are never lost
+  // when realtime sends a partial row.
   React.useEffect(() => {
     if (!id) return
     const channel = supabasePlayer
@@ -1299,7 +1302,11 @@ export default function TournamentDetails() {
       .on(
         'postgres_changes',
         { event: 'UPDATE', schema: 'public', table: 'tournaments', filter: `id=eq.${id}` },
-        (payload) => { if (payload.new) setTournament(payload.new) }
+        (payload) => {
+          if (payload.new) {
+            setTournament(prev => prev ? { ...prev, ...payload.new } : payload.new)
+          }
+        }
       )
       .subscribe()
     return () => { supabasePlayer.removeChannel(channel) }
@@ -1354,24 +1361,20 @@ export default function TournamentDetails() {
 
       if (asHost) { setMyReg(asHost); return }
 
-      // Check as teammate member
+      // FIX: filter registration_members by tournament via join —
+      // avoids picking up registrations from other tournaments.
       const { data: asMember } = await supabasePlayer
         .from('registration_members')
-        .select('registration_id, game_uid')
+        .select('registration_id, game_uid, tournament_registrations!inner(id, team_name, status, host_uid, tournament_id)')
         .eq('game_uid', profile.game_uid)
-        .limit(20)
+        .eq('tournament_registrations.tournament_id', id)
+        .not('tournament_registrations.status', 'in', '("rejected","cancelled")')
+        .limit(1)
+        .maybeSingle()
 
-      if (asMember?.length) {
-        const regIds = asMember.map(m => m.registration_id)
-        const { data: regRows } = await supabasePlayer
-          .from('tournament_registrations')
-          .select('id, team_name, status, host_uid')
-          .in('id', regIds)
-          .eq('tournament_id', id)
-          .not('status', 'in', '("rejected","cancelled")')
-          .maybeSingle()
-
-        if (regRows) { setMyReg(regRows); return }
+      if (asMember?.tournament_registrations) {
+        setMyReg(asMember.tournament_registrations)
+        return
       }
 
       setMyReg(null)
@@ -1409,7 +1412,11 @@ export default function TournamentDetails() {
   const isClosed = tournament.status === 'registration_closed'
 
   const hasJoined = !!myReg
+  // undefined means still loading registration check
   const myRegLoading = myReg === undefined
+
+  // FIX: registration CTA visible for open, closed, and live — only hidden when ended
+  const canRegister = !isEnded && !hasJoined && !myRegLoading
 
   const prizeEntries = tournament.prize_pool
     ? Object.entries(tournament.prize_pool).filter(([, v]) => v)
@@ -1511,11 +1518,12 @@ export default function TournamentDetails() {
       {/* ── RESULTS (when ended or results exist) ── */}
       <ResultsPanel tournament={tournament} />
 
-      {/* ── ROOM CODE (for non-long tournaments — always shown so registered players can see it) ── */}
+      {/* ── ROOM CODE (for non-long tournaments — wait for reg check before rendering) ── */}
       {!isLong && (
         <RoomCodeCard
           tournamentId={tournament.id}
           hasJoined={hasJoined}
+          myRegLoading={myRegLoading}
         />
       )}
 
@@ -1531,11 +1539,7 @@ export default function TournamentDetails() {
         />
       )}
 
-      {/* ── REGISTRATION SECTION ──
-          FIXED: Show registration status for ALL statuses (including ended).
-          Only hide the Register button/form when tournament is ended or not open.
-          Registered players always see their registration info.
-      ── */}
+      {/* ── REGISTRATION SECTION ── */}
       {!isLong && (
         <section className="card space-y-4" id="tournament-register">
           {myRegLoading ? (
@@ -1544,7 +1548,7 @@ export default function TournamentDetails() {
               Checking registration…
             </div>
           ) : hasJoined ? (
-            /* ── Already registered — always show this regardless of status ── */
+            /* ── Already registered ── */
             <div className="space-y-2">
               <div className="flex items-center gap-2">
                 <span className="text-base">✅</span>
@@ -1566,8 +1570,8 @@ export default function TournamentDetails() {
           ) : isEnded ? (
             /* ── Tournament ended, not registered ── */
             <p className="text-xs text-slate-500 text-center py-2">This tournament has ended.</p>
-          ) : isOpen ? (
-            /* ── Registration open, not yet registered ── */
+          ) : canRegister ? (
+            /* ── FIX: Show register option for open, registration_closed, AND live ── */
             !player ? (
               <div className="space-y-2 text-center py-2">
                 <p className="text-xs text-slate-400">Sign in to register for this tournament.</p>
@@ -1603,14 +1607,22 @@ export default function TournamentDetails() {
                     <span className="text-slate-600"> · {myProfile.game_uid}</span>
                   </p>
                 </div>
-                <button type="button" onClick={() => setShowRegForm(true)} className="btn-primary w-full">
-                  Register Now
-                </button>
+                {isOpen ? (
+                  <button type="button" onClick={() => setShowRegForm(true)} className="btn-primary w-full">
+                    Register Now
+                  </button>
+                ) : (
+                  <div className="space-y-2">
+                    <button type="button" onClick={() => setShowRegForm(true)} className="btn-primary w-full">
+                      Register Now
+                    </button>
+                    <p className="text-[10px] text-amber-500/80 text-center">
+                      {isClosed ? 'Registration is closed — contact the organiser to confirm your slot.' : 'Tournament is live — contact the organiser to join.'}
+                    </p>
+                  </div>
+                )}
               </div>
             )
-          ) : isClosed ? (
-            /* ── Registration closed, not registered ── */
-            <p className="text-xs text-slate-500 text-center py-2">Registration is closed for this tournament.</p>
           ) : null}
         </section>
       )}
