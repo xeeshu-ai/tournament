@@ -44,7 +44,7 @@ export function Tournaments() {
       const { data: asHost } = await supabasePlayer
         .from('tournament_registrations')
         .select('tournament_id')
-        .eq('host_player_id', profile.id)
+        .eq('player_id', profile.id)  // ✅ fixed: was host_player_id
 
       const { data: asMembers } = await supabasePlayer
         .from('registration_members')
