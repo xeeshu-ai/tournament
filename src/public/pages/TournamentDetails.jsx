@@ -667,50 +667,55 @@ export default function TournamentDetails() {
     }
   }, [id, refetchTournament])
 
-  React.useEffect(() => {
-    if (authLoading) return
-    if (!user) { setMyReg(null); return }
+React.useEffect(() => {
+  if (authLoading) return
+  if (!user) { setMyReg(null); return }
 
-    async function checkMyReg() {
-      if (!profile?.id || !id) { setMyReg(null); return }
+  async function checkMyReg() {
+    if (!profile?.id || !id || !tournament?.game_id) { setMyReg(null); return }
 
-      const { data: gameProfile } = await supabasePlayer
-        .from('player_profiles')
-        .select('game_uid')
-        .eq('id', profile.id)
-        .maybeSingle()
+    // ✅ game_profiles, not player_profiles
+    const { data: gameProfile } = await supabasePlayer
+      .from('game_profiles')
+      .select('game_uid')
+      .eq('player_id', profile.id)
+      .eq('game_id', tournament.game_id)
+      .eq('status', 'verified')
+      .maybeSingle()
 
-      if (!gameProfile?.game_uid) { setMyReg(null); return }
+    if (!gameProfile?.game_uid) { setMyReg(null); return }
 
-      const { data: asHost } = await supabasePlayer
-        .from('tournament_registrations')
-        .select('*')
-        .eq('tournament_id', id)
-        .eq('host_uid', gameProfile.game_uid)
-        .not('status', 'in', '("rejected","cancelled")')
-        .limit(1)
-        .maybeSingle()
+    // Check as host
+    const { data: asHost } = await supabasePlayer
+      .from('tournament_registrations')
+      .select('*')
+      .eq('tournament_id', id)
+      .eq('host_uid', gameProfile.game_uid)
+      .not('status', 'in', '("rejected","cancelled")')
+      .limit(1)
+      .maybeSingle()
 
-      if (asHost) { setMyReg(asHost); return }
+    if (asHost) { setMyReg(asHost); return }
 
-      const { data: asMember } = await supabasePlayer
-        .from('registration_teammates')
-        .select('registration_id, game_uid, tournament_registrations!inner(id, team_name, status, host_uid, tournament_id)')
-        .eq('game_uid', gameProfile.game_uid)
-        .eq('tournament_registrations.tournament_id', id)
-        .not('tournament_registrations.status', 'in', '("rejected","cancelled")')
-        .limit(1)
-        .maybeSingle()
+    // ✅ registration_members, not registration_teammates
+    const { data: asMember } = await supabasePlayer
+      .from('registration_members')
+      .select('registration_id, game_uid, tournament_registrations!inner(id, team_name, status, host_uid, tournament_id)')
+      .eq('game_uid', gameProfile.game_uid)
+      .eq('tournament_registrations.tournament_id', id)
+      .not('tournament_registrations.status', 'in', '("rejected","cancelled")')
+      .limit(1)
+      .maybeSingle()
 
-      if (asMember?.tournament_registrations) {
-        setMyReg(asMember.tournament_registrations)
-      } else {
-        setMyReg(null)
-      }
+    if (asMember?.tournament_registrations) {
+      setMyReg(asMember.tournament_registrations)
+    } else {
+      setMyReg(null)
     }
+  }
 
-    checkMyReg()
-  }, [authLoading, user, profile?.id, id])
+  checkMyReg()
+}, [authLoading, user, profile?.id, id, tournament?.game_id])
 
   const handleRegister = async (formData) => {
     if (!user || !profile?.id) { setError('You must be logged in to register.'); return }
@@ -720,17 +725,18 @@ export default function TournamentDetails() {
 
     try {
       const { data: gameProfile } = await supabasePlayer
-        .from('player_profiles')
-        .select('game_uid, display_name')
-        .eq('id', profile.id)
-        .maybeSingle()
-
+  .from('game_profiles')
+  .select('game_uid, in_game_name')
+  .eq('player_id', profile.id)
+  .eq('game_id', tournament?.game_id)
+  .eq('status', 'verified')
+  .maybeSingle()
       if (!gameProfile?.game_uid) { setError('Complete your game profile before registering.'); setSubmitting(false); return }
 
       const payload = {
         tournament_id: id,
         host_uid: gameProfile.game_uid,
-        team_name: formData.team_name || gameProfile.display_name || 'My Team',
+        team_name: formData.team_name || gameProfile.in_game_name || 'My Team',
         status: 'pending',
         ...formData
       }
