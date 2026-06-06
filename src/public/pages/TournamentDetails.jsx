@@ -715,99 +715,107 @@ export default function TournamentDetails() {
     return () => { mounted = false; supabasePlayer.removeChannel(channel) }
   }, [id, refetchTournament])
 
-  // ── Reset registration state instantly when tournament changes ───────────────────
-React.useEffect(() => {
-  setMyReg(undefined)
-  setMyRegLoading(true)
-}, [id])
-
-// ── Check my registration ────────────────────────────────────────────────────────────────
-React.useEffect(() => {
-  if (authLoading) return
-  if (!user || !profile?.id || !id) {
-    setMyReg(null)
-    setMyRegLoading(false)
-    return
-  }
-if (!tournament) {
-  setMyRegLoading(true)
-  return
-}
-
-  let cancelled = false
-
-  async function checkMyReg() {
+  // ── Reset registration state instantly when tournament id changes ────────────────────
+  React.useEffect(() => {
+    setMyReg(undefined)
     setMyRegLoading(true)
+  }, [id])
 
-    // If tournament has a game_id, check for a verified game profile
-    if (tournament.game_id) {
-      const { data: gameProfile } = await supabasePlayer
-        .from('game_profiles')
-        .select('game_uid')
-        .eq('player_id', profile.id)
-        .eq('game_id', tournament.game_id)
-        .eq('status', 'verified')
-        .maybeSingle()
+  // ── Check my registration ────────────────────────────────────────────────────────────────
+  // FIX: depend only on tournament?.id and tournament?.game_id (not the full object)
+  // so realtime spreads ({ ...prev, ...payload.new }) don't re-trigger this effect
+  // and thrash myRegLoading back to true.
+  const tournamentId = tournament?.id
+  const tournamentGameId = tournament?.game_id
 
-      if (cancelled) return
+  React.useEffect(() => {
+    if (authLoading) return
+    if (!user || !profile?.id || !id) {
+      setMyReg(null)
+      setMyRegLoading(false)
+      return
+    }
+    // FIX: bail silently — do NOT call setMyRegLoading(true) here.
+    // The previous version set myRegLoading(true) then returned without
+    // ever clearing it, leaving the button permanently hidden.
+    if (!tournamentId) return
 
-      if (!gameProfile?.game_uid) {
-        setMyReg(null)
+    let cancelled = false
+
+    async function checkMyReg() {
+      setMyRegLoading(true)
+
+      // If tournament has a game_id, check for a verified game profile
+      if (tournamentGameId) {
+        const { data: gameProfile } = await supabasePlayer
+          .from('game_profiles')
+          .select('game_uid')
+          .eq('player_id', profile.id)
+          .eq('game_id', tournamentGameId)
+          .eq('status', 'verified')
+          .maybeSingle()
+
+        if (cancelled) return
+
+        if (!gameProfile?.game_uid) {
+          setMyReg(null)
+          setMyRegLoading(false)
+          return
+        }
+
+        const { data: asHost } = await supabasePlayer
+          .from('tournament_registrations')
+          .select('*')
+          .eq('tournament_id', id)
+          .eq('host_uid', gameProfile.game_uid)
+          .not('status', 'in', '(rejected,cancelled)')
+          .limit(1)
+          .maybeSingle()
+
+        if (cancelled) return
+        if (asHost) { setMyReg(asHost); setMyRegLoading(false); return }
+
+        const { data: asMember } = await supabasePlayer
+          .from('registration_members')
+          .select('registration_id, game_uid, tournament_registrations!inner(id, team_name, status, host_uid, tournament_id)')
+          .eq('tournament_id', id)
+          .eq('game_uid', gameProfile.game_uid)
+          .not('tournament_registrations.status', 'in', '(rejected,cancelled)')
+          .maybeSingle()
+
+        if (cancelled) return
+        setMyReg(asMember?.tournament_registrations ?? null)
         setMyRegLoading(false)
         return
       }
 
+      // No game_id on tournament — fall back to player_id lookup
       const { data: asHost } = await supabasePlayer
         .from('tournament_registrations')
         .select('*')
         .eq('tournament_id', id)
-        .eq('host_uid', gameProfile.game_uid)
+        .eq('player_id', profile.id)
         .not('status', 'in', '(rejected,cancelled)')
         .limit(1)
         .maybeSingle()
 
       if (cancelled) return
-      if (asHost) { setMyReg(asHost); setMyRegLoading(false); return }
-
-      const { data: asMember } = await supabasePlayer
-        .from('registration_members')
-        .select('registration_id, game_uid, tournament_registrations!inner(id, team_name, status, host_uid, tournament_id)')
-        .eq('tournament_id', id)
-        .eq('game_uid', gameProfile.game_uid)
-        .not('tournament_registrations.status', 'in', '(rejected,cancelled)')
-        .maybeSingle()
-
-      if (cancelled) return
-      setMyReg(asMember?.tournament_registrations ?? null)
+      setMyReg(asHost ?? null)
       setMyRegLoading(false)
-      return
     }
 
-    // No game_id on tournament — fall back to player_id lookup
-    const { data: asHost } = await supabasePlayer
-      .from('tournament_registrations')
-      .select('*')
-      .eq('tournament_id', id)
-      .eq('player_id', profile.id)
-      .not('status', 'in', '(rejected,cancelled)')
-      .limit(1)
-      .maybeSingle()
-
-    if (cancelled) return
-    setMyReg(asHost ?? null)
-    setMyRegLoading(false)
-  }
-
-  checkMyReg()
-  return () => { cancelled = true }
-}, [authLoading, user, profile?.id, id, tournament])
+    checkMyReg()
+    return () => { cancelled = true }
+  }, [authLoading, user, profile?.id, id, tournamentId, tournamentGameId])
 
   // ── Derived state ─────────────────────────────────────────────────────────────────────
   const hasJoined = !!myReg
+  // FIX: normalize status to guard against whitespace/casing from DB
+  const normalizedStatus = tournament?.status?.trim().toLowerCase()
   const canRegister =
     !myRegLoading &&
     !hasJoined &&
-    tournament?.status === 'upcoming' &&
+    normalizedStatus === 'upcoming' &&
     user != null
 
   const isLong = tournament?.type === 'long'
