@@ -259,7 +259,6 @@ function RoomCodeCard({ tournamentId, hasJoined, myRegLoading }) {
     } catch (_) {}
   }
 
-  // Wait for both room code fetch AND registration check
   if (roomCode === undefined || myRegLoading) {
     return (
       <SectionCard title="Room code" subtitle="Checking eligibility and room details.">
@@ -525,142 +524,319 @@ function LongTournamentPanel({ tournamentId, myReg, totalRounds }) {
   )
 }
 
-// ─── REGISTRATION FORM ───────────────────────────────────────────────
-function RegistrationForm({ tournament, profile, onSuccess, onCancel }) {
+// ─── UID Lookup Field (league-style) ────────────────────────────────────────
+function UidLookupField({ gameId, onConfirmed, onClear, excludeUids = [], label }) {
+  const [uid, setUid] = React.useState('')
+  const [state, setState] = React.useState('idle')
+  const [found, setFound] = React.useState(null)
+  const [confirmed, setConfirmed] = React.useState(false)
+  const timerRef = React.useRef(null)
+
+  async function search(val) {
+    if (!val.trim()) return
+    setState('searching')
+    const { data } = await supabasePlayer
+      .from('game_profiles')
+      .select('id, game_uid, in_game_name, player_id, status')
+      .eq('game_id', gameId)
+      .eq('game_uid', val.trim())
+      .eq('status', 'verified')
+      .maybeSingle()
+    if (!data) { setState('error'); setFound(null); return }
+    if (excludeUids.includes(data.game_uid)) {
+      setState('error'); setFound({ error: 'Already added or is you' }); return
+    }
+    setState('found'); setFound(data)
+  }
+
+  function handleChange(e) {
+    const val = e.target.value
+    setUid(val); setConfirmed(false); setFound(null); setState('idle')
+    onClear()
+    clearTimeout(timerRef.current)
+    if (val.length >= 4) {
+      timerRef.current = setTimeout(() => search(val), 600)
+    }
+  }
+
+  function handleConfirm() {
+    setConfirmed(true)
+    onConfirmed({ playerId: found.player_id, gameUid: found.game_uid, inGameName: found.in_game_name })
+  }
+
+  function handleReset() {
+    setUid(''); setState('idle'); setFound(null); setConfirmed(false); onClear()
+  }
+
+  if (confirmed && found) {
+    return (
+      <div className="flex items-center justify-between rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-3">
+        <div>
+          <p className="text-sm font-semibold text-emerald-300">{found.in_game_name}</p>
+          <p className="text-[11px] text-slate-500">UID: {found.game_uid}</p>
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="text-emerald-400 text-sm">✓</span>
+          <button onClick={handleReset} className="text-[11px] text-slate-500 hover:text-slate-300 underline">change</button>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="space-y-2">
+      <label className="block text-xs font-medium text-slate-400">{label} <span className="text-slate-600">(optional)</span></label>
+      <div className="flex gap-2">
+        <input
+          value={uid}
+          onChange={handleChange}
+          inputMode="text"
+          placeholder="Enter in-game UID (optional)…"
+          className="flex-1 rounded-xl border border-slate-700 bg-slate-800/80 px-4 py-3 text-sm text-slate-100 placeholder:text-slate-600 focus:border-sky-500/50 focus:outline-none focus:ring-1 focus:ring-sky-500/30"
+        />
+        <button
+          onClick={() => search(uid)}
+          disabled={!uid.trim() || state === 'searching'}
+          className="rounded-xl bg-slate-700 px-4 py-3 text-sm text-slate-200 hover:bg-slate-600 disabled:opacity-40 transition-colors"
+        >
+          {state === 'searching' ? '…' : '🔍'}
+        </button>
+      </div>
+      {state === 'found' && found && !confirmed && (
+        <div className="flex items-center justify-between rounded-xl border border-slate-600 bg-slate-800/60 px-4 py-3">
+          <div>
+            <p className="text-sm font-semibold text-slate-100">{found.in_game_name}</p>
+            <p className="text-[11px] text-slate-500">UID: {found.game_uid} · Verified ✓</p>
+          </div>
+          <button onClick={handleConfirm} className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-emerald-500 transition-colors">
+            Add
+          </button>
+        </div>
+      )}
+      {state === 'error' && (
+        <p className="text-[11px] text-red-400 px-1">
+          {found?.error ?? `No verified player found with this UID.`}
+        </p>
+      )}
+    </div>
+  )
+}
+
+// ─── Register Sheet (league-style bottom modal) ──────────────────────────────
+function RegisterSheet({ tournament, playerProfile, hostGameProfile, onClose, onSuccess }) {
+  const [step, setStep] = React.useState(1)
   const [teamName, setTeamName] = React.useState('')
-  const [members, setMembers] = React.useState([{ name: '', uid: '' }])
+  const [teammates, setTeammates] = React.useState([])
   const [submitting, setSubmitting] = React.useState(false)
   const [error, setError] = React.useState('')
 
-  const teamSize = tournament?.team_size || 1
-  const slotsNeeded = teamSize - 1 // teammates excluding host
+  const teamSize = tournament.team_size || 1
+  const need = teamSize - 1
+  const excludeUids = [hostGameProfile?.game_uid, ...teammates.map(t => t.gameUid)].filter(Boolean)
 
-  const addMember = () => {
-    if (members.length < slotsNeeded) setMembers(prev => [...prev, { name: '', uid: '' }])
+  function setTeammate(idx, data) {
+    setTeammates(prev => { const next = [...prev]; next[idx] = data; return next })
   }
-  const removeMember = (i) => setMembers(prev => prev.filter((_, idx) => idx !== i))
-  const updateMember = (i, field, val) => setMembers(prev => prev.map((m, idx) => idx === i ? { ...m, [field]: val } : m))
+  function clearTeammate(idx) {
+    setTeammates(prev => { const next = [...prev]; next[idx] = undefined; return next.filter(Boolean) })
+  }
 
-  const handleSubmit = async (e) => {
-    e.preventDefault()
-    setError('')
-    if (!teamName.trim()) { setError('Team name is required.'); return }
-    setSubmitting(true)
+  // Total steps: step 1 = team name, step 2 = teammates (if needed), step 3 (or 2 if solo) = review
+  const reviewStep = need > 0 ? 3 : 2
+  const totalSteps = reviewStep
+
+  async function submit() {
+    setSubmitting(true); setError('')
     try {
-      const { data: gameProfile } = await supabasePlayer
-        .from('game_profiles')
-        .select('game_uid, ign')
-        .eq('player_id', profile.id)
-        .eq('game_id', tournament.game_id)
-        .eq('status', 'verified')
-        .maybeSingle()
-
-      if (!gameProfile?.game_uid) {
-        setError('Your game profile is not verified yet. Please verify your UID first.')
-        setSubmitting(false)
-        return
-      }
-
       const { data: reg, error: regErr } = await supabasePlayer
         .from('tournament_registrations')
         .insert({
           tournament_id: tournament.id,
-          player_id: profile.id,
+          player_id: playerProfile.id,
+          host_player_id: playerProfile.id,
+          host_uid: hostGameProfile.game_uid,
+          host_ign: hostGameProfile.in_game_name || '',
           team_name: teamName.trim(),
-          host_uid: gameProfile.game_uid,
-          host_ign: gameProfile.ign || '',
           status: 'pending',
           team_size: teamSize,
         })
-        .select()
-        .single()
+        .select('id').single()
+      if (regErr) throw regErr
 
-      if (regErr || !reg) {
-        setError(regErr?.message || 'Registration failed. Please try again.')
-        setSubmitting(false)
-        return
-      }
-
-      // Insert members
-      const memberRows = members
-        .filter(m => m.uid?.trim())
-        .map((m, i) => ({
-          registration_id: reg.id,
-          tournament_id: tournament.id,
-          game_uid: m.uid.trim(),
-          ign: m.name.trim() || '',
-          slot: i + 1,
-        }))
-
-      if (memberRows.length > 0) {
-        await supabasePlayer.from('registration_members').insert(memberRows)
-      }
-
-      onSuccess?.()
-    } catch (err) {
-      setError('Unexpected error. Please try again.')
+      const members = [
+        { registration_id: reg.id, player_id: playerProfile.id, slot: 1, game_uid: hostGameProfile.game_uid, in_game_name: hostGameProfile.in_game_name },
+        ...teammates.map((t, i) => ({ registration_id: reg.id, player_id: t.playerId, slot: i + 2, game_uid: t.gameUid, in_game_name: t.inGameName })),
+      ]
+      const { error: memErr } = await supabasePlayer.from('registration_members').insert(members)
+      if (memErr) throw memErr
+      onSuccess()
+    } catch (e) {
+      setError(e.message || 'Registration failed. Try again.')
     } finally {
       setSubmitting(false)
     }
   }
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-4">
-      <div>
-        <label className="block text-xs font-medium text-slate-300 mb-1.5">Team Name</label>
-        <input
-          type="text"
-          value={teamName}
-          onChange={e => setTeamName(e.target.value)}
-          placeholder="Enter your team name"
-          className="w-full rounded-xl border border-white/10 bg-white/[0.04] px-4 py-2.5 text-sm text-slate-100 placeholder-slate-500 focus:border-sky-500/50 focus:outline-none focus:ring-1 focus:ring-sky-500/30"
-          required
-        />
-      </div>
+    <div className="fixed inset-0 z-50 flex flex-col justify-end sm:items-center sm:justify-center bg-black/70 backdrop-blur-sm" onClick={onClose}>
+      <div className="relative w-full max-w-lg rounded-t-2xl sm:rounded-2xl bg-slate-900 border border-slate-700/60 max-h-[92vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+        {/* drag handle (mobile) */}
+        <div className="flex justify-center pt-3 pb-1 sm:hidden"><div className="h-1 w-10 rounded-full bg-slate-700" /></div>
 
-      {slotsNeeded > 0 && (
-        <div>
-          <div className="flex items-center justify-between mb-2">
-            <label className="text-xs font-medium text-slate-300">Teammates ({members.length}/{slotsNeeded})</label>
-            {members.length < slotsNeeded && (
-              <button type="button" onClick={addMember} className="text-[11px] font-semibold text-sky-400 hover:text-sky-300">+ Add</button>
-            )}
+        {/* header */}
+        <div className="sticky top-0 z-10 bg-slate-900 border-b border-slate-800 px-5 py-4 flex items-center justify-between">
+          <div>
+            <p className="text-[11px] text-slate-500 uppercase tracking-widest">Register Team</p>
+            <p className="text-sm font-semibold text-slate-100 mt-0.5 truncate max-w-[240px]">{tournament.name}</p>
           </div>
-          <div className="space-y-2">
-            {members.map((m, i) => (
-              <div key={i} className="flex gap-2">
-                <input
-                  type="text"
-                  value={m.uid}
-                  onChange={e => updateMember(i, 'uid', e.target.value)}
-                  placeholder="Game UID"
-                  className="flex-1 rounded-xl border border-white/10 bg-white/[0.04] px-3 py-2 text-sm text-slate-100 placeholder-slate-500 focus:border-sky-500/50 focus:outline-none"
-                />
-                <input
-                  type="text"
-                  value={m.name}
-                  onChange={e => updateMember(i, 'name', e.target.value)}
-                  placeholder="IGN (optional)"
-                  className="flex-1 rounded-xl border border-white/10 bg-white/[0.04] px-3 py-2 text-sm text-slate-100 placeholder-slate-500 focus:border-sky-500/50 focus:outline-none"
-                />
-                <button type="button" onClick={() => removeMember(i)} className="rounded-xl border border-rose-500/20 bg-rose-500/10 px-3 text-rose-400 hover:bg-rose-500/20 text-xs">✕</button>
-              </div>
-            ))}
-          </div>
+          <button onClick={onClose} className="rounded-lg p-2 text-slate-400 hover:text-slate-200 hover:bg-slate-800 transition-colors">✕</button>
         </div>
-      )}
 
-      {error && <div className="rounded-xl border border-rose-500/20 bg-rose-500/10 px-4 py-3 text-sm text-rose-300">{error}</div>}
+        {/* step progress bar */}
+        <div className="flex gap-1.5 px-5 pt-4">
+          {Array.from({ length: totalSteps }, (_, i) => i + 1).map(s => (
+            <div key={s} className={`h-1 flex-1 rounded-full transition-colors ${s <= step ? 'bg-sky-500' : 'bg-slate-700'}`} />
+          ))}
+        </div>
 
-      <div className="flex gap-3 pt-1">
-        <button type="submit" disabled={submitting} className="flex-1 rounded-xl bg-sky-500 px-4 py-2.5 text-sm font-semibold text-slate-950 hover:bg-sky-400 disabled:opacity-50 transition-colors">
-          {submitting ? 'Registering\u2026' : 'Register'}
-        </button>
-        <button type="button" onClick={onCancel} className="rounded-xl border border-white/10 px-4 py-2.5 text-sm font-medium text-slate-300 hover:bg-white/[0.04] transition-colors">
-          Cancel
-        </button>
+        {/* step content */}
+        <div className="px-5 py-5 space-y-5">
+          {/* Step 1 — team name */}
+          {step === 1 && (
+            <div className="space-y-4">
+              <div>
+                <h2 className="text-base font-semibold text-slate-100">Choose your team name</h2>
+                <p className="text-xs text-slate-500 mt-1">This is how your team will appear in standings.</p>
+              </div>
+              <div className="space-y-1.5">
+                <label className="block text-xs font-medium text-slate-400">Team Name</label>
+                <input
+                  value={teamName}
+                  onChange={e => setTeamName(e.target.value)}
+                  maxLength={20}
+                  placeholder="e.g. Phantom Squad"
+                  className="w-full rounded-xl border border-slate-700 bg-slate-800/80 px-4 py-3 text-sm text-slate-100 placeholder:text-slate-600 focus:border-sky-500/50 focus:outline-none focus:ring-1 focus:ring-sky-500/30"
+                />
+                <p className="text-[11px] text-slate-600 text-right">{teamName.length}/20</p>
+              </div>
+              {/* host card */}
+              <div className="rounded-xl border border-slate-700/60 bg-slate-800/40 px-4 py-3 flex items-center gap-3">
+                <div className="h-8 w-8 rounded-full bg-sky-500/20 flex items-center justify-center text-sky-400 text-sm font-bold flex-shrink-0">
+                  {hostGameProfile?.in_game_name?.[0]?.toUpperCase() ?? '?'}
+                </div>
+                <div>
+                  <p className="text-xs font-semibold text-slate-200">{hostGameProfile?.in_game_name}</p>
+                  <p className="text-[11px] text-slate-500">You (Captain) · UID: {hostGameProfile?.game_uid}</p>
+                </div>
+                <span className="ml-auto inline-flex items-center rounded-full border border-purple-500/30 bg-purple-500/15 px-2 py-0.5 text-[11px] font-medium text-purple-300">Host</span>
+              </div>
+            </div>
+          )}
+
+          {/* Step 2 — teammates (only when team size > 1) */}
+          {step === 2 && need > 0 && (
+            <div className="space-y-4">
+              <div>
+                <h2 className="text-base font-semibold text-slate-100">Add teammates <span className="text-slate-500 font-normal text-sm">(optional)</span></h2>
+                <p className="text-xs text-slate-500 mt-1">Search by in-game UID. Only verified profiles can be added.</p>
+              </div>
+              {Array.from({ length: need }).map((_, i) => (
+                <UidLookupField
+                  key={i}
+                  gameId={tournament.game_id}
+                  label={`Teammate ${i + 1}`}
+                  excludeUids={excludeUids}
+                  onConfirmed={(data) => setTeammate(i, data)}
+                  onClear={() => clearTeammate(i)}
+                />
+              ))}
+            </div>
+          )}
+
+          {/* Review step */}
+          {step === reviewStep && (
+            <div className="space-y-4">
+              <div>
+                <h2 className="text-base font-semibold text-slate-100">Review & Submit</h2>
+                <p className="text-xs text-slate-500 mt-1">You can add remaining teammates after registration.</p>
+              </div>
+              <div className="rounded-xl border border-slate-700/60 bg-slate-800/40 divide-y divide-slate-700/50">
+                <div className="px-4 py-3">
+                  <p className="text-[11px] text-slate-500 uppercase tracking-widest">Team</p>
+                  <p className="text-sm font-semibold text-slate-100 mt-0.5">{teamName}</p>
+                </div>
+                {/* captain row */}
+                <div className="flex items-center gap-3 px-4 py-3">
+                  <div className="h-7 w-7 rounded-full bg-sky-500/20 flex items-center justify-center text-sky-400 text-xs font-bold flex-shrink-0">
+                    {hostGameProfile?.in_game_name?.[0]?.toUpperCase()}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs font-medium text-slate-200">{hostGameProfile?.in_game_name}</p>
+                    <p className="text-[10px] text-slate-600">UID: {hostGameProfile?.game_uid}</p>
+                  </div>
+                  <span className="inline-flex items-center rounded-full border border-purple-500/30 bg-purple-500/15 px-2 py-0.5 text-[11px] font-medium text-purple-300">Captain</span>
+                </div>
+                {/* teammate rows */}
+                {teammates.map((t, i) => (
+                  <div key={i} className="flex items-center gap-3 px-4 py-3">
+                    <div className="h-7 w-7 rounded-full bg-slate-700 flex items-center justify-center text-slate-400 text-xs font-bold flex-shrink-0">
+                      {t.inGameName[0]?.toUpperCase()}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-medium text-slate-200">{t.inGameName}</p>
+                      <p className="text-[10px] text-slate-600">UID: {t.gameUid}</p>
+                    </div>
+                  </div>
+                ))}
+                {need > 0 && teammates.length < need && (
+                  <div className="px-4 py-3">
+                    <p className="text-[11px] text-slate-500">{need - teammates.length} slot{need - teammates.length > 1 ? 's' : ''} empty — fill after registration.</p>
+                  </div>
+                )}
+              </div>
+              {/* entry fee */}
+              <div className="rounded-xl border border-slate-700/40 bg-slate-800/20 px-4 py-3 flex items-center justify-between">
+                <span className="text-xs text-slate-400">Entry Fee</span>
+                <span className="text-sm font-semibold text-slate-100">{tournament.entry_fee > 0 ? `₹${tournament.entry_fee}` : 'Free'}</span>
+              </div>
+              {error && <p className="text-xs text-red-400 bg-red-500/10 rounded-xl px-4 py-3">{error}</p>}
+            </div>
+          )}
+        </div>
+
+        {/* footer nav */}
+        <div className="sticky bottom-0 bg-slate-900 border-t border-slate-800 px-5 py-4 flex gap-3">
+          {step > 1 && (
+            <button onClick={() => setStep(s => s - 1)} className="flex-1 rounded-xl border border-slate-700 py-3 text-sm font-medium text-slate-300 hover:bg-slate-800 transition-colors">
+              ← Back
+            </button>
+          )}
+          {step === 1 && (
+            <button
+              onClick={() => setStep(need > 0 ? 2 : reviewStep)}
+              disabled={teamName.trim().length < 3}
+              className="flex-1 rounded-xl bg-sky-600 py-3 text-sm font-semibold text-white hover:bg-sky-500 disabled:opacity-40 transition-colors"
+            >
+              Continue →
+            </button>
+          )}
+          {step === 2 && need > 0 && (
+            <button onClick={() => setStep(reviewStep)} className="flex-1 rounded-xl bg-sky-600 py-3 text-sm font-semibold text-white hover:bg-sky-500 transition-colors">
+              Review →
+            </button>
+          )}
+          {step === reviewStep && (
+            <button
+              onClick={submit}
+              disabled={submitting}
+              className="flex-1 rounded-xl bg-emerald-600 py-3 text-sm font-semibold text-white hover:bg-emerald-500 disabled:opacity-40 transition-colors"
+            >
+              {submitting ? 'Submitting…' : '✅ Submit Team'}
+            </button>
+          )}
+        </div>
       </div>
-    </form>
+    </div>
   )
 }
 
@@ -673,18 +849,15 @@ export default function TournamentDetails() {
 
   const [tournament, setTournament] = React.useState(null)
   const [loading, setLoading] = React.useState(true)
-  const [showRegForm, setShowRegForm] = React.useState(false)
+  const [showRegSheet, setShowRegSheet] = React.useState(false)
+  const [hostGameProfile, setHostGameProfile] = React.useState(null)
   const [myReg, setMyReg] = React.useState(undefined)
   const [myRegLoading, setMyRegLoading] = React.useState(true)
   const [error, setError] = React.useState('')
   const [success, setSuccess] = React.useState('')
-
-  // FIX 2: counter incremented after a successful registration to re-trigger
-  // checkMyReg cleanly, instead of the bare setMyRegLoading(true) that had no
-  // code path to ever clear itself.
   const [regCheckKey, setRegCheckKey] = React.useState(0)
 
-  // ── Load tournament ─────────────────────────────────────────────────────────────────────
+  // ── Load tournament ──────────────────────────────────────────────────────
   const refetchTournament = React.useCallback(async () => {
     if (!id) return
     const { data } = await supabasePlayer.from('tournaments').select('*').eq('id', id).single()
@@ -720,16 +893,13 @@ export default function TournamentDetails() {
     return () => { mounted = false; supabasePlayer.removeChannel(channel) }
   }, [id, refetchTournament])
 
-  // ── Reset registration state instantly when tournament id changes ────────────────────
+  // ── Reset registration state on tournament change ────────────────────────
   React.useEffect(() => {
     setMyReg(undefined)
     setMyRegLoading(true)
   }, [id])
 
-  // ── Check my registration ────────────────────────────────────────────────────────────────
-  // Depend on tournament?.id and tournament?.game_id (not the full object) so realtime
-  // spreads ({ ...prev, ...payload.new }) don't re-trigger this effect and thrash
-  // myRegLoading back to true on every DB push.
+  // ── Check my registration ────────────────────────────────────────────────
   const tournamentId = tournament?.id
   const tournamentGameId = tournament?.game_id
 
@@ -740,9 +910,6 @@ export default function TournamentDetails() {
       setMyRegLoading(false)
       return
     }
-    // FIX 1: bail silently — do NOT call setMyRegLoading(true) here.
-    // The old code set myRegLoading(true) then returned without ever clearing it,
-    // leaving canRegister permanently false and the button permanently hidden.
     if (!tournamentId) return
 
     let cancelled = false
@@ -750,11 +917,10 @@ export default function TournamentDetails() {
     async function checkMyReg() {
       setMyRegLoading(true)
 
-      // If tournament has a game_id, check for a verified game profile
       if (tournamentGameId) {
         const { data: gameProfile } = await supabasePlayer
           .from('game_profiles')
-          .select('game_uid')
+          .select('game_uid, in_game_name')
           .eq('player_id', profile.id)
           .eq('game_id', tournamentGameId)
           .eq('status', 'verified')
@@ -767,6 +933,9 @@ export default function TournamentDetails() {
           setMyRegLoading(false)
           return
         }
+
+        // Store host game profile so RegisterSheet can use it
+        setHostGameProfile(gameProfile)
 
         const { data: asHost } = await supabasePlayer
           .from('tournament_registrations')
@@ -794,7 +963,7 @@ export default function TournamentDetails() {
         return
       }
 
-      // No game_id on tournament — fall back to player_id lookup
+      // No game_id — fall back to player_id lookup
       const { data: asHost } = await supabasePlayer
         .from('tournament_registrations')
         .select('*')
@@ -813,10 +982,23 @@ export default function TournamentDetails() {
     return () => { cancelled = true }
   }, [authLoading, user, profile?.id, id, tournamentId, tournamentGameId, regCheckKey])
 
-  // ── Derived state ─────────────────────────────────────────────────────────────────────
+  // ── Open register sheet — fetch host profile if not yet loaded ───────────
+  async function handleOpenRegSheet() {
+    if (!hostGameProfile && tournamentGameId && profile?.id) {
+      const { data } = await supabasePlayer
+        .from('game_profiles')
+        .select('game_uid, in_game_name')
+        .eq('player_id', profile.id)
+        .eq('game_id', tournamentGameId)
+        .eq('status', 'verified')
+        .maybeSingle()
+      setHostGameProfile(data || null)
+    }
+    setShowRegSheet(true)
+  }
+
+  // ── Derived state ────────────────────────────────────────────────────────
   const hasJoined = !!myReg
-  // FIX 3: normalize status to guard against whitespace/casing differences in DB
-  const normalizedStatus = tournament?.status?.trim().toLowerCase()
   const canRegister =
     !myRegLoading &&
     !hasJoined &&
@@ -825,7 +1007,7 @@ export default function TournamentDetails() {
 
   const isLong = tournament?.type === 'long'
 
-  // ── Loading / not found ───────────────────────────────────────────────────────────────────
+  // ── Loading / not found ──────────────────────────────────────────────────
   if (loading) {
     return (
       <div className="flex min-h-[40vh] items-center justify-center">
@@ -851,14 +1033,28 @@ export default function TournamentDetails() {
     )
   }
 
-  // ── Page ─────────────────────────────────────────────────────────────────────────────────
+  // ── Page ─────────────────────────────────────────────────────────────────
   return (
     <div className="space-y-6">
 
-      {/* ── Page header with back navigation ── */}
+      {/* ── Register Sheet modal ── */}
+      {showRegSheet && hostGameProfile && (
+        <RegisterSheet
+          tournament={tournament}
+          playerProfile={profile}
+          hostGameProfile={hostGameProfile}
+          onClose={() => setShowRegSheet(false)}
+          onSuccess={() => {
+            setShowRegSheet(false)
+            setSuccess('Registration submitted! Awaiting confirmation.')
+            setRegCheckKey(k => k + 1)
+          }}
+        />
+      )}
+
+      {/* ── Page header ── */}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div className="flex items-start gap-3">
-          {/* Back button */}
           <button
             onClick={() => navigate(`/${gameId}/tournaments`)}
             className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border border-white/10 bg-white/[0.03] text-slate-400 hover:border-white/20 hover:bg-white/[0.06] hover:text-slate-200 transition-colors"
@@ -870,7 +1066,6 @@ export default function TournamentDetails() {
           </button>
 
           <div className="min-w-0">
-            {/* Breadcrumb */}
             <div className="mb-1 flex items-center gap-1.5 text-[11px] text-slate-500">
               <button onClick={() => navigate(`/${gameId}/tournaments`)} className="hover:text-slate-300 transition-colors">
                 Tournaments
@@ -878,11 +1073,7 @@ export default function TournamentDetails() {
               <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" aria-hidden="true"><path d="M9 18l6-6-6-6" /></svg>
               <span className="text-slate-400 truncate max-w-[180px] sm:max-w-xs">{tournament.name}</span>
             </div>
-
-            {/* Tournament name */}
             <h1 className="text-xl font-bold leading-tight text-slate-50 sm:text-2xl">{tournament.name}</h1>
-
-            {/* Meta pills */}
             <div className="mt-2 flex flex-wrap items-center gap-2">
               <StatusBadge status={tournament.status} />
               {tournament.mode && (
@@ -904,10 +1095,10 @@ export default function TournamentDetails() {
           </div>
         </div>
 
-        {/* Register CTA (top-right on desktop) */}
-        {canRegister && !showRegForm && (
+        {/* Register CTA (top-right desktop) */}
+        {canRegister && (
           <button
-            onClick={() => setShowRegForm(true)}
+            onClick={handleOpenRegSheet}
             className="shrink-0 rounded-xl bg-sky-500 px-5 py-2.5 text-sm font-semibold text-slate-950 shadow-lg shadow-sky-500/20 hover:bg-sky-400 transition-colors"
           >
             Register Now
@@ -920,31 +1111,12 @@ export default function TournamentDetails() {
         )}
       </div>
 
-      {/* ── Success / Error banners ── */}
+      {/* ── Banners ── */}
       {success && (
         <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-200">{success}</div>
       )}
       {error && (
         <div className="rounded-xl border border-rose-500/20 bg-rose-500/10 px-4 py-3 text-sm text-rose-300">{error}</div>
-      )}
-
-      {/* ── Registration form ── */}
-      {showRegForm && (
-        <SectionCard title="Register for this tournament" subtitle="Fill in your team details to join.">
-          <RegistrationForm
-            tournament={tournament}
-            profile={profile}
-            onSuccess={() => {
-              setShowRegForm(false)
-              setSuccess('Registration submitted! Awaiting confirmation.')
-              // FIX 2: increment regCheckKey to re-run checkMyReg cleanly after
-              // a successful registration, instead of bare setMyRegLoading(true)
-              // which had no code path to ever resolve.
-              setRegCheckKey(k => k + 1)
-            }}
-            onCancel={() => setShowRegForm(false)}
-          />
-        </SectionCard>
       )}
 
       {/* ── Tournament info ── */}
@@ -962,7 +1134,7 @@ export default function TournamentDetails() {
         )}
       </SectionCard>
 
-      {/* ── Room code (non-long tournaments) ── */}
+      {/* ── Room code ── */}
       {!isLong && (
         <RoomCodeCard
           tournamentId={id}
@@ -991,12 +1163,12 @@ export default function TournamentDetails() {
         <BRRulesSection gameName={tournament.game_name || ''} />
       )}
 
-      {/* ── Register CTA (bottom, mobile-friendly) ── */}
-      {canRegister && !showRegForm && (
+      {/* ── Register CTA (bottom, mobile) ── */}
+      {canRegister && (
         <div className="rounded-2xl border border-sky-500/20 bg-sky-500/5 px-5 py-5 text-center">
           <p className="mb-3 text-sm text-slate-300">Spots are filling up. Register your team now.</p>
           <button
-            onClick={() => setShowRegForm(true)}
+            onClick={handleOpenRegSheet}
             className="rounded-xl bg-sky-500 px-6 py-2.5 text-sm font-semibold text-slate-950 shadow-lg shadow-sky-500/20 hover:bg-sky-400 transition-colors"
           >
             Register Now
