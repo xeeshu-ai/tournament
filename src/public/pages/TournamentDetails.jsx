@@ -729,7 +729,10 @@ React.useEffect(() => {
     setMyRegLoading(false)
     return
   }
-  if (!tournament) return  // ✅ fixed: wait for tournament to load, but do NOT require game_id
+if (!tournament) {
+  setMyRegLoading(true)
+  return
+}
 
   let cancelled = false
 
