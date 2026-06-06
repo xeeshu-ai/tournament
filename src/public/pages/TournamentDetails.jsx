@@ -679,6 +679,11 @@ export default function TournamentDetails() {
   const [error, setError] = React.useState('')
   const [success, setSuccess] = React.useState('')
 
+  // FIX 2: counter incremented after a successful registration to re-trigger
+  // checkMyReg cleanly, instead of the bare setMyRegLoading(true) that had no
+  // code path to ever clear itself.
+  const [regCheckKey, setRegCheckKey] = React.useState(0)
+
   // ── Load tournament ─────────────────────────────────────────────────────────────────────
   const refetchTournament = React.useCallback(async () => {
     if (!id) return
@@ -722,9 +727,9 @@ export default function TournamentDetails() {
   }, [id])
 
   // ── Check my registration ────────────────────────────────────────────────────────────────
-  // FIX: depend only on tournament?.id and tournament?.game_id (not the full object)
-  // so realtime spreads ({ ...prev, ...payload.new }) don't re-trigger this effect
-  // and thrash myRegLoading back to true.
+  // Depend on tournament?.id and tournament?.game_id (not the full object) so realtime
+  // spreads ({ ...prev, ...payload.new }) don't re-trigger this effect and thrash
+  // myRegLoading back to true on every DB push.
   const tournamentId = tournament?.id
   const tournamentGameId = tournament?.game_id
 
@@ -735,9 +740,9 @@ export default function TournamentDetails() {
       setMyRegLoading(false)
       return
     }
-    // FIX: bail silently — do NOT call setMyRegLoading(true) here.
-    // The previous version set myRegLoading(true) then returned without
-    // ever clearing it, leaving the button permanently hidden.
+    // FIX 1: bail silently — do NOT call setMyRegLoading(true) here.
+    // The old code set myRegLoading(true) then returned without ever clearing it,
+    // leaving canRegister permanently false and the button permanently hidden.
     if (!tournamentId) return
 
     let cancelled = false
@@ -806,11 +811,11 @@ export default function TournamentDetails() {
 
     checkMyReg()
     return () => { cancelled = true }
-  }, [authLoading, user, profile?.id, id, tournamentId, tournamentGameId])
+  }, [authLoading, user, profile?.id, id, tournamentId, tournamentGameId, regCheckKey])
 
   // ── Derived state ─────────────────────────────────────────────────────────────────────
   const hasJoined = !!myReg
-  // FIX: normalize status to guard against whitespace/casing from DB
+  // FIX 3: normalize status to guard against whitespace/casing differences in DB
   const normalizedStatus = tournament?.status?.trim().toLowerCase()
   const canRegister =
     !myRegLoading &&
@@ -932,8 +937,10 @@ export default function TournamentDetails() {
             onSuccess={() => {
               setShowRegForm(false)
               setSuccess('Registration submitted! Awaiting confirmation.')
-              // Re-check registration
-              setMyRegLoading(true)
+              // FIX 2: increment regCheckKey to re-run checkMyReg cleanly after
+              // a successful registration, instead of bare setMyRegLoading(true)
+              // which had no code path to ever resolve.
+              setRegCheckKey(k => k + 1)
             }}
             onCancel={() => setShowRegForm(false)}
           />
