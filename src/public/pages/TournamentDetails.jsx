@@ -606,24 +606,21 @@ function UidLookupField({ gameId, onConfirmed, onClear, excludeUids = [], label 
         <div className="flex items-center justify-between rounded-xl border border-slate-600 bg-slate-800/60 px-4 py-3">
           <div>
             <p className="text-sm font-semibold text-slate-100">{found.in_game_name}</p>
-            <p className="text-[11px] text-slate-500">UID: {found.game_uid} · Verified ✓</p>
+            <p className="text-[11px] text-slate-500">UID: {found.game_uid}</p>
           </div>
-          <button onClick={handleConfirm} className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-emerald-500 transition-colors">
-            Add
-          </button>
+          <button onClick={handleConfirm} className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-1.5 text-xs font-semibold text-emerald-300 hover:bg-emerald-500/20">Add</button>
         </div>
       )}
       {state === 'error' && (
-        <p className="text-[11px] text-red-400 px-1">
-          {found?.error ?? `No verified player found with this UID.`}
-        </p>
+        <p className="text-[11px] text-rose-400">{found?.error || 'No verified profile found for this UID.'}</p>
       )}
     </div>
   )
 }
 
-// ─── Register Sheet (league-style bottom modal) ──────────────────────────────
+// ─── Register Sheet ──────────────────────────────────────────────────────────
 function RegisterSheet({ tournament, playerProfile, hostGameProfile, onClose, onSuccess }) {
+  const need = Math.max(0, (tournament.team_size || 1) - 1)
   const [step, setStep] = React.useState(1)
   const [teamName, setTeamName] = React.useState('')
   const [teammates, setTeammates] = React.useState([])
@@ -631,12 +628,8 @@ function RegisterSheet({ tournament, playerProfile, hostGameProfile, onClose, on
   const [error, setError] = React.useState('')
 
   const teamSize = tournament.team_size || 1
-  const need = teamSize - 1
-  const excludeUids = [hostGameProfile?.game_uid, ...teammates.map(t => t.gameUid)].filter(Boolean)
 
-  function setTeammate(idx, data) {
-    setTeammates(prev => { const next = [...prev]; next[idx] = data; return next })
-  }
+  function addTeammate(data) { setTeammates(prev => [...prev, data]) }
   function clearTeammate(idx) {
     setTeammates(prev => { const next = [...prev]; next[idx] = undefined; return next.filter(Boolean) })
   }
@@ -669,6 +662,21 @@ function RegisterSheet({ tournament, playerProfile, hostGameProfile, onClose, on
       ]
       const { error: memErr } = await supabasePlayer.from('registration_members').insert(members)
       if (memErr) throw memErr
+
+      // ── Auto-flip: close registration & set ongoing when slots are full ──
+      if (tournament.max_teams) {
+        const { count } = await supabasePlayer
+          .from('tournament_registrations')
+          .select('id', { count: 'exact', head: true })
+          .eq('tournament_id', tournament.id)
+          .not('status', 'in', '(rejected,cancelled)')
+        if (count >= tournament.max_teams) {
+          await supabasePlayer
+            .from('tournaments')
+            .update({ registration_status: 'closed', status: 'ongoing' })
+            .eq('id', tournament.id)
+        }
+      }
       onSuccess()
     } catch (e) {
       setError(e.message || 'Registration failed. Try again.')
@@ -699,140 +707,135 @@ function RegisterSheet({ tournament, playerProfile, hostGameProfile, onClose, on
           ))}
         </div>
 
-        {/* step content */}
         <div className="px-5 py-5 space-y-5">
-          {/* Step 1 — team name */}
+
+          {/* ── Step 1: Team Name ── */}
           {step === 1 && (
             <div className="space-y-4">
               <div>
-                <h2 className="text-base font-semibold text-slate-100">Choose your team name</h2>
-                <p className="text-xs text-slate-500 mt-1">This is how your team will appear in standings.</p>
+                <h2 className="text-base font-semibold text-slate-100">Team name</h2>
+                <p className="text-xs text-slate-500 mt-1">Choose a name for your team in this tournament.</p>
               </div>
+
+              {/* host info */}
+              <div className="rounded-xl border border-slate-700 bg-slate-800/60 px-4 py-3">
+                <div className="text-[10px] uppercase tracking-[0.2em] text-slate-500 mb-1">Your in-game profile</div>
+                <div className="flex items-center gap-3">
+                  <div className="h-8 w-8 rounded-full bg-sky-500/20 flex items-center justify-center text-sky-300 text-sm font-bold">
+                    {(hostGameProfile.in_game_name || '?')[0].toUpperCase()}
+                  </div>
+                  <div>
+                    <div className="text-sm font-semibold text-slate-100">{hostGameProfile.in_game_name}</div>
+                    <div className="text-[11px] text-slate-500">UID: {hostGameProfile.game_uid}</div>
+                  </div>
+                </div>
+              </div>
+
               <div className="space-y-1.5">
-                <label className="block text-xs font-medium text-slate-400">Team Name</label>
+                <label className="block text-xs font-medium text-slate-400">Team name</label>
                 <input
                   value={teamName}
                   onChange={e => setTeamName(e.target.value)}
-                  maxLength={20}
-                  placeholder="e.g. Phantom Squad"
+                  placeholder="e.g. Team Alpha, Dark Knights…"
+                  maxLength={32}
                   className="w-full rounded-xl border border-slate-700 bg-slate-800/80 px-4 py-3 text-sm text-slate-100 placeholder:text-slate-600 focus:border-sky-500/50 focus:outline-none focus:ring-1 focus:ring-sky-500/30"
                 />
-                <p className="text-[11px] text-slate-600 text-right">{teamName.length}/20</p>
+                <div className="text-right text-[11px] text-slate-600">{teamName.length}/32</div>
               </div>
-              {/* host card */}
-              <div className="rounded-xl border border-slate-700/60 bg-slate-800/40 px-4 py-3 flex items-center gap-3">
-                <div className="h-8 w-8 rounded-full bg-sky-500/20 flex items-center justify-center text-sky-400 text-sm font-bold flex-shrink-0">
-                  {hostGameProfile?.in_game_name?.[0]?.toUpperCase() ?? '?'}
-                </div>
-                <div>
-                  <p className="text-xs font-semibold text-slate-200">{hostGameProfile?.in_game_name}</p>
-                  <p className="text-[11px] text-slate-500">You (Captain) · UID: {hostGameProfile?.game_uid}</p>
-                </div>
-                <span className="ml-auto inline-flex items-center rounded-full border border-purple-500/30 bg-purple-500/15 px-2 py-0.5 text-[11px] font-medium text-purple-300">Host</span>
-              </div>
+
+              <button
+                onClick={() => { if (teamName.trim().length >= 2) setStep(need > 0 ? 2 : reviewStep) }}
+                disabled={teamName.trim().length < 2}
+                className="w-full rounded-xl bg-sky-600 py-3 text-sm font-semibold text-white hover:bg-sky-500 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+              >
+                Continue →
+              </button>
             </div>
           )}
 
-          {/* Step 2 — teammates (only when team size > 1) */}
+          {/* ── Step 2: Teammates (if team size > 1) ── */}
           {step === 2 && need > 0 && (
             <div className="space-y-4">
               <div>
-                <h2 className="text-base font-semibold text-slate-100">Add teammates <span className="text-slate-500 font-normal text-sm">(optional)</span></h2>
-                <p className="text-xs text-slate-500 mt-1">Search by in-game UID. Only verified profiles can be added.</p>
+                <h2 className="text-base font-semibold text-slate-100">Add teammates</h2>
+                <p className="text-xs text-slate-500 mt-1">Search by in-game UID. Teammates must have a verified profile.</p>
               </div>
-              {Array.from({ length: need }).map((_, i) => (
+
+              {Array.from({ length: need }, (_, i) => (
                 <UidLookupField
                   key={i}
                   gameId={tournament.game_id}
                   label={`Teammate ${i + 1}`}
-                  excludeUids={excludeUids}
-                  onConfirmed={(data) => setTeammate(i, data)}
+                  excludeUids={[hostGameProfile.game_uid, ...teammates.filter((_, ti) => ti !== i).map(t => t?.gameUid).filter(Boolean)]}
+                  onConfirmed={data => {
+                    setTeammates(prev => {
+                      const next = [...prev]
+                      next[i] = data
+                      return next
+                    })
+                  }}
                   onClear={() => clearTeammate(i)}
                 />
               ))}
+
+              <div className="flex gap-3">
+                <button onClick={() => setStep(1)} className="flex-1 rounded-xl border border-slate-700 py-3 text-sm font-medium text-slate-300 hover:bg-slate-800 transition-colors">← Back</button>
+                <button
+                  onClick={() => setStep(reviewStep)}
+                  className="flex-1 rounded-xl bg-sky-600 py-3 text-sm font-semibold text-white hover:bg-sky-500 transition-colors"
+                >
+                  Continue →
+                </button>
+              </div>
             </div>
           )}
 
-          {/* Review step */}
+          {/* ── Review & Submit ── */}
           {step === reviewStep && (
             <div className="space-y-4">
               <div>
                 <h2 className="text-base font-semibold text-slate-100">Review & Submit</h2>
                 <p className="text-xs text-slate-500 mt-1">You can add remaining teammates after registration.</p>
               </div>
-              <div className="rounded-xl border border-slate-700/60 bg-slate-800/40 divide-y divide-slate-700/50">
-                <div className="px-4 py-3">
-                  <p className="text-[11px] text-slate-500 uppercase tracking-widest">Team</p>
-                  <p className="text-sm font-semibold text-slate-100 mt-0.5">{teamName}</p>
+
+              {/* summary */}
+              <div className="rounded-xl border border-slate-700 bg-slate-800/40 divide-y divide-slate-700/60">
+                <div className="px-4 py-3 flex items-center justify-between">
+                  <span className="text-xs text-slate-500">Team name</span>
+                  <span className="text-sm font-semibold text-slate-100">{teamName}</span>
                 </div>
-                {/* captain row */}
-                <div className="flex items-center gap-3 px-4 py-3">
-                  <div className="h-7 w-7 rounded-full bg-sky-500/20 flex items-center justify-center text-sky-400 text-xs font-bold flex-shrink-0">
-                    {hostGameProfile?.in_game_name?.[0]?.toUpperCase()}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-xs font-medium text-slate-200">{hostGameProfile?.in_game_name}</p>
-                    <p className="text-[10px] text-slate-600">UID: {hostGameProfile?.game_uid}</p>
-                  </div>
-                  <span className="inline-flex items-center rounded-full border border-purple-500/30 bg-purple-500/15 px-2 py-0.5 text-[11px] font-medium text-purple-300">Captain</span>
+                <div className="px-4 py-3 flex items-center justify-between">
+                  <span className="text-xs text-slate-500">Host</span>
+                  <span className="text-sm text-slate-200">{hostGameProfile.in_game_name} <span className="text-slate-500 text-[11px]">({hostGameProfile.game_uid})</span></span>
                 </div>
-                {/* teammate rows */}
-                {teammates.map((t, i) => (
-                  <div key={i} className="flex items-center gap-3 px-4 py-3">
-                    <div className="h-7 w-7 rounded-full bg-slate-700 flex items-center justify-center text-slate-400 text-xs font-bold flex-shrink-0">
-                      {t.inGameName[0]?.toUpperCase()}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-xs font-medium text-slate-200">{t.inGameName}</p>
-                      <p className="text-[10px] text-slate-600">UID: {t.gameUid}</p>
-                    </div>
+                {teammates.length > 0 && teammates.map((t, i) => (
+                  <div key={i} className="px-4 py-3 flex items-center justify-between">
+                    <span className="text-xs text-slate-500">Teammate {i + 1}</span>
+                    <span className="text-sm text-slate-200">{t.inGameName} <span className="text-slate-500 text-[11px]">({t.gameUid})</span></span>
                   </div>
                 ))}
-                {need > 0 && teammates.length < need && (
+                {need - teammates.length > 0 && (
                   <div className="px-4 py-3">
                     <p className="text-[11px] text-slate-500">{need - teammates.length} slot{need - teammates.length > 1 ? 's' : ''} empty — fill after registration.</p>
                   </div>
                 )}
               </div>
-              {/* entry fee */}
-              <div className="rounded-xl border border-slate-700/40 bg-slate-800/20 px-4 py-3 flex items-center justify-between">
-                <span className="text-xs text-slate-400">Entry Fee</span>
-                <span className="text-sm font-semibold text-slate-100">{tournament.entry_fee > 0 ? `₹${tournament.entry_fee}` : 'Free'}</span>
-              </div>
-              {error && <p className="text-xs text-red-400 bg-red-500/10 rounded-xl px-4 py-3">{error}</p>}
-            </div>
-          )}
-        </div>
 
-        {/* footer nav */}
-        <div className="sticky bottom-0 bg-slate-900 border-t border-slate-800 px-5 py-4 flex gap-3">
-          {step > 1 && (
-            <button onClick={() => setStep(s => s - 1)} className="flex-1 rounded-xl border border-slate-700 py-3 text-sm font-medium text-slate-300 hover:bg-slate-800 transition-colors">
-              ← Back
-            </button>
-          )}
-          {step === 1 && (
-            <button
-              onClick={() => setStep(need > 0 ? 2 : reviewStep)}
-              disabled={teamName.trim().length < 3}
-              className="flex-1 rounded-xl bg-sky-600 py-3 text-sm font-semibold text-white hover:bg-sky-500 disabled:opacity-40 transition-colors"
-            >
-              Continue →
-            </button>
-          )}
-          {step === 2 && need > 0 && (
-            <button onClick={() => setStep(reviewStep)} className="flex-1 rounded-xl bg-sky-600 py-3 text-sm font-semibold text-white hover:bg-sky-500 transition-colors">
-              Review →
-            </button>
-          )}
-          {step === reviewStep && (
-            <button
-              onClick={submit}
-              disabled={submitting}
-              className="flex-1 rounded-xl bg-emerald-600 py-3 text-sm font-semibold text-white hover:bg-emerald-500 disabled:opacity-40 transition-colors"
-            >
-              {submitting ? 'Submitting…' : '✅ Submit Team'}
-            </button>
+              {error && (
+                <div className="rounded-xl border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-sm text-rose-300">{error}</div>
+              )}
+
+              <div className="flex gap-3">
+                <button onClick={() => setStep(need > 0 ? 2 : 1)} className="flex-1 rounded-xl border border-slate-700 py-3 text-sm font-medium text-slate-300 hover:bg-slate-800 transition-colors">← Back</button>
+                <button
+                  onClick={submit}
+                  disabled={submitting}
+                  className="flex-1 rounded-xl bg-emerald-600 py-3 text-sm font-semibold text-white hover:bg-emerald-500 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                >
+                  {submitting ? 'Submitting…' : '✅ Submit Team'}
+                </button>
+              </div>
+            </div>
           )}
         </div>
       </div>
@@ -840,58 +843,48 @@ function RegisterSheet({ tournament, playerProfile, hostGameProfile, onClose, on
   )
 }
 
-// ─── MAIN PAGE ───────────────────────────────────────────────────────────────
+// ─── Main Page ───────────────────────────────────────────────────────────────
 export default function TournamentDetails() {
-  const { id, gameId } = useParams()
+  const { gameId, id } = useParams()
   const navigate = useNavigate()
-
-  const { user, profile, loading: authLoading } = usePlayer()
+  const { user, profile, authLoading } = usePlayer()
 
   const [tournament, setTournament] = React.useState(null)
   const [loading, setLoading] = React.useState(true)
-  const [showRegSheet, setShowRegSheet] = React.useState(false)
-  const [hostGameProfile, setHostGameProfile] = React.useState(null)
   const [myReg, setMyReg] = React.useState(undefined)
   const [myRegLoading, setMyRegLoading] = React.useState(true)
-  const [error, setError] = React.useState('')
-  const [success, setSuccess] = React.useState('')
   const [regCheckKey, setRegCheckKey] = React.useState(0)
+  const [showRegSheet, setShowRegSheet] = React.useState(false)
+  const [hostGameProfile, setHostGameProfile] = React.useState(null)
+  const [success, setSuccess] = React.useState('')
 
-  // ── Load tournament ──────────────────────────────────────────────────────
-  const refetchTournament = React.useCallback(async () => {
-    if (!id) return
-    const { data } = await supabasePlayer.from('tournaments').select('*').eq('id', id).single()
-    if (data) setTournament(data)
-  }, [id])
-
+  // ── Load tournament + realtime ───────────────────────────────────────────
   React.useEffect(() => {
     let mounted = true
-    async function load() {
-      setLoading(true)
-      const { data } = await supabasePlayer.from('tournaments').select('*').eq('id', id).single()
+    setLoading(true)
+
+    async function loadTournament() {
+      const { data } = await supabasePlayer
+        .from('tournaments')
+        .select('*')
+        .eq('id', id)
+        .maybeSingle()
       if (mounted) { setTournament(data || null); setLoading(false) }
     }
-    if (id) load()
-    return () => { mounted = false }
-  }, [id])
+    loadTournament()
 
-  // Realtime tournament updates
-  React.useEffect(() => {
-    if (!id) return
-    let mounted = true
     const channel = supabasePlayer
       .channel(`tournament:${id}`)
       .on('postgres_changes',
         { event: 'UPDATE', schema: 'public', table: 'tournaments', filter: `id=eq.${id}` },
         (payload) => {
-          if (!mounted) return
-          if (payload.new?.status === 'ended') refetchTournament()
-          else setTournament(prev => prev ? { ...prev, ...payload.new } : prev)
+          if (mounted && payload.new) setTournament(prev => prev ? { ...prev, ...payload.new } : prev)
         }
       )
       .subscribe()
+
     return () => { mounted = false; supabasePlayer.removeChannel(channel) }
-  }, [id, refetchTournament])
+  }, [id])
 
   // ── Reset registration state on tournament change ────────────────────────
   React.useEffect(() => {
@@ -900,100 +893,73 @@ export default function TournamentDetails() {
   }, [id])
 
   // ── Check my registration ────────────────────────────────────────────────
-  const tournamentId = tournament?.id
-  const tournamentGameId = tournament?.game_id
-
   React.useEffect(() => {
-    if (authLoading) return
-    if (!user || !profile?.id || !id) {
-      setMyReg(null)
-      setMyRegLoading(false)
-      return
-    }
-    if (!tournamentId) return
-
-    let cancelled = false
+    let mounted = true
 
     async function checkMyReg() {
-      setMyRegLoading(true)
+      if (authLoading) return
+      if (!user || !profile?.id || !id) {
+        setMyReg(null)
+        setMyRegLoading(false)
+        return
+      }
+      if (!tournament) return
 
-      if (tournamentGameId) {
-        const { data: gameProfile } = await supabasePlayer
-          .from('game_profiles')
-          .select('game_uid, in_game_name')
-          .eq('player_id', profile.id)
-          .eq('game_id', tournamentGameId)
-          .eq('status', 'verified')
-          .maybeSingle()
+      const tournamentGameId = tournament.game_id
 
-        if (cancelled) return
+      // 1. Check if this player is the host
+      const { data: asHost } = await supabasePlayer
+        .from('tournament_registrations')
+        .select('id, team_name, status, host_uid, tournament_id')
+        .eq('tournament_id', id)
+        .eq('player_id', profile.id)
+        .not('status', 'in', '(rejected,cancelled)')
+        .maybeSingle()
 
-        if (!gameProfile?.game_uid) {
-          setMyReg(null)
-          setMyRegLoading(false)
-          return
-        }
+      if (!mounted) return
 
-        // Store host game profile so RegisterSheet can use it
-        setHostGameProfile(gameProfile)
-
-        const { data: asHost } = await supabasePlayer
-          .from('tournament_registrations')
-          .select('*')
-          .eq('tournament_id', id)
-          .eq('host_uid', gameProfile.game_uid)
-          .not('status', 'in', '(rejected,cancelled)')
-          .limit(1)
-          .maybeSingle()
-
-        if (cancelled) return
-        if (asHost) { setMyReg(asHost); setMyRegLoading(false); return }
-
-        const { data: asMember } = await supabasePlayer
-          .from('registration_members')
-          .select('registration_id, game_uid, tournament_registrations!inner(id, team_name, status, host_uid, tournament_id)')
-          .eq('tournament_id', id)
-          .eq('game_uid', gameProfile.game_uid)
-          .not('tournament_registrations.status', 'in', '(rejected,cancelled)')
-          .maybeSingle()
-
-        if (cancelled) return
-        setMyReg(asMember?.tournament_registrations ?? null)
+      if (asHost) {
+        setMyReg(asHost)
         setMyRegLoading(false)
         return
       }
 
-      // No game_id — fall back to player_id lookup
-      const { data: asHost } = await supabasePlayer
-        .from('tournament_registrations')
-        .select('*')
-        .eq('tournament_id', id)
+      // 2. Check if this player is a member
+      const { data: asMember } = await supabasePlayer
+        .from('registration_members')
+        .select('registration_id, game_uid, tournament_registrations!inner(id, team_name, status, host_uid, tournament_id)')
         .eq('player_id', profile.id)
-        .not('status', 'in', '(rejected,cancelled)')
-        .limit(1)
+        .eq('game_uid', (await supabasePlayer
+          .from('game_profiles')
+          .select('game_uid')
+          .eq('player_id', profile.id)
+          .eq('game_id', tournamentGameId)
+          .eq('status', 'verified')
+          .maybeSingle()
+        ).data?.game_uid || '')
+        .not('tournament_registrations.status', 'in', '(rejected,cancelled)')
+        .eq('tournament_registrations.tournament_id', id)
         .maybeSingle()
 
-      if (cancelled) return
-      setMyReg(asHost ?? null)
+      if (!mounted) return
+      setMyReg(asMember?.tournament_registrations ?? null)
       setMyRegLoading(false)
     }
 
     checkMyReg()
-    return () => { cancelled = true }
-  }, [authLoading, user, profile?.id, id, tournamentId, tournamentGameId, regCheckKey])
+    return () => { mounted = false }
+  }, [authLoading, user, profile?.id, id, tournament?.id, tournament?.game_id, regCheckKey])
 
-  // ── Open register sheet — fetch host profile if not yet loaded ───────────
-  async function handleOpenRegSheet() {
-    if (!hostGameProfile && tournamentGameId && profile?.id) {
-      const { data } = await supabasePlayer
-        .from('game_profiles')
-        .select('game_uid, in_game_name')
-        .eq('player_id', profile.id)
-        .eq('game_id', tournamentGameId)
-        .eq('status', 'verified')
-        .maybeSingle()
-      setHostGameProfile(data || null)
-    }
+  async function openRegSheet() {
+    if (!profile?.id || !tournament?.game_id) return
+    const { data } = await supabasePlayer
+      .from('game_profiles')
+      .select('game_uid, in_game_name')
+      .eq('player_id', profile.id)
+      .eq('game_id', tournament.game_id)
+      .eq('status', 'verified')
+      .maybeSingle()
+    setHostGameProfile(data || null)
     setShowRegSheet(true)
   }
 
@@ -1058,123 +1024,108 @@ export default function TournamentDetails() {
           <button
             onClick={() => navigate(`/${gameId}/tournaments`)}
             className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border border-white/10 bg-white/[0.03] text-slate-400 hover:border-white/20 hover:bg-white/[0.06] hover:text-slate-200 transition-colors"
-            aria-label="Back to tournaments"
           >
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-              <path d="M15 18l-6-6 6-6" />
-            </svg>
+            ←
           </button>
-
-          <div className="min-w-0">
-            <div className="mb-1 flex items-center gap-1.5 text-[11px] text-slate-500">
-              <button onClick={() => navigate(`/${gameId}/tournaments`)} className="hover:text-slate-300 transition-colors">
-                Tournaments
-              </button>
-              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" aria-hidden="true"><path d="M9 18l6-6-6-6" /></svg>
-              <span className="text-slate-400 truncate max-w-[180px] sm:max-w-xs">{tournament.name}</span>
-            </div>
-            <h1 className="text-xl font-bold leading-tight text-slate-50 sm:text-2xl">{tournament.name}</h1>
-            <div className="mt-2 flex flex-wrap items-center gap-2">
+          <div>
+            <h1 className="text-lg font-bold text-slate-100 leading-tight">{tournament.name}</h1>
+            <div className="mt-1.5 flex flex-wrap items-center gap-2">
               <StatusBadge status={tournament.status} />
-              {tournament.mode && (
-                <span className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-1 text-[11px] font-semibold text-slate-300">
-                  {getModeLabel(tournament.mode)}
-                </span>
-              )}
-              {tournament.type === 'long' && (
-                <span className="rounded-full border border-purple-500/30 bg-purple-500/10 px-3 py-1 text-[11px] font-semibold text-purple-300">
-                  Multi-round
-                </span>
-              )}
-              {tournament.prize_pool && (
-                <span className="rounded-full border border-amber-500/30 bg-amber-500/10 px-3 py-1 text-[11px] font-semibold text-amber-300">
-                  🏆 ₹{tournament.prize_pool}
-                </span>
-              )}
+              {tournament.game_name ? (
+                <span className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-1 text-[11px] font-medium text-slate-400">{tournament.game_name}</span>
+              ) : null}
             </div>
           </div>
         </div>
 
-        {/* Register CTA (top-right desktop) */}
-        {canRegister && (
-          <button
-            onClick={handleOpenRegSheet}
-            className="shrink-0 rounded-xl bg-sky-500 px-5 py-2.5 text-sm font-semibold text-slate-950 shadow-lg shadow-sky-500/20 hover:bg-sky-400 transition-colors"
-          >
-            Register Now
-          </button>
-        )}
-        {hasJoined && (
-          <span className="shrink-0 rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-2.5 text-sm font-semibold text-emerald-300">
-            ✓ Registered
-          </span>
-        )}
+        {/* Register button */}
+        <div className="flex flex-col items-end gap-2 shrink-0">
+          {myRegLoading ? (
+            <div className="flex items-center gap-2 text-sm text-slate-400"><LoadingDots /><span>Checking…</span></div>
+          ) : hasJoined ? (
+            <div className="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-4 py-2 text-sm font-semibold text-emerald-300">
+              ✓ Registered — {myReg?.team_name}
+            </div>
+          ) : canRegister ? (
+            <button
+              onClick={openRegSheet}
+              className="rounded-xl bg-sky-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-sky-500 transition-colors shadow-lg shadow-sky-900/30"
+            >
+              Register Now
+            </button>
+          ) : tournament?.registration_status === 'closed' ? (
+            <div className="rounded-full border border-slate-600 bg-slate-800/60 px-4 py-2 text-sm font-medium text-slate-400">
+              Registrations closed
+            </div>
+          ) : !user ? (
+            <div className="rounded-full border border-slate-600 bg-slate-800/60 px-4 py-2 text-sm font-medium text-slate-400">
+              Log in to register
+            </div>
+          ) : null}
+          {success && <p className="text-xs text-emerald-400">{success}</p>}
+        </div>
       </div>
 
-      {/* ── Banners ── */}
-      {success && (
-        <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-200">{success}</div>
-      )}
-      {error && (
-        <div className="rounded-xl border border-rose-500/20 bg-rose-500/10 px-4 py-3 text-sm text-rose-300">{error}</div>
-      )}
+      {/* ── Stats row ── */}
+      <div className="flex flex-wrap gap-2">
+        <StatPill label="Mode" value={getModeLabel(tournament.mode)} />
+        <StatPill label="Type" value={tournament.type || '\u2014'} />
+        {tournament.prize_pool ? <StatPill label="Prize" value={`₹${tournament.prize_pool}`} tone="success" /> : null}
+        {tournament.entry_fee ? <StatPill label="Entry" value={`₹${tournament.entry_fee}`} tone="warning" /> : null}
+        {tournament.max_teams ? <StatPill label="Slots" value={String(tournament.max_teams)} /> : null}
+      </div>
 
-      {/* ── Tournament info ── */}
-      <SectionCard title="Tournament details" subtitle="Overview and configuration for this event.">
+      {/* ── Details grid ── */}
+      <SectionCard title="Tournament details" subtitle="Key information about this event.">
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-          <DetailRow label="Entry fee" value={tournament.entry_fee ? `\u20b9${tournament.entry_fee}` : 'Free'} />
-          <DetailRow label="Prize pool" value={tournament.prize_pool ? `\u20b9${tournament.prize_pool}` : '\u2014'} />
+          <DetailRow label="Game" value={tournament.game_name} />
+          <DetailRow label="Mode" value={getModeLabel(tournament.mode)} />
           <DetailRow label="Team size" value={tournament.team_size ? `${tournament.team_size}v${tournament.team_size}` : '\u2014'} />
           <DetailRow label="Max teams" value={tournament.max_teams ? String(tournament.max_teams) : '\u2014'} />
-          <DetailRow label="Match date" value={tournament.match_date || '\u2014'} />
-          <DetailRow label="Match time" value={tournament.match_time || '\u2014'} />
+          <DetailRow label="Entry fee" value={tournament.entry_fee ? `₹${tournament.entry_fee}` : 'Free'} highlight={!!tournament.entry_fee} />
+          <DetailRow label="Prize pool" value={tournament.prize_pool ? `₹${tournament.prize_pool}` : '\u2014'} highlight={!!tournament.prize_pool} />
+          {tournament.scheduled_at ? <DetailRow label="Scheduled" value={new Date(tournament.scheduled_at).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' })} /> : null}
+          {tournament.description ? <div className="sm:col-span-2 xl:col-span-3 rounded-xl border border-white/10 bg-white/[0.03] px-4 py-3"><div className="text-[10px] uppercase tracking-[0.22em] text-slate-400">Description</div><div className="mt-1 text-sm text-slate-300 leading-relaxed">{tournament.description}</div></div> : null}
         </div>
-        {tournament.description && (
-          <p className="mt-4 text-sm text-slate-300 leading-relaxed">{tournament.description}</p>
-        )}
       </SectionCard>
 
-      {/* ── Room code ── */}
-      {!isLong && (
-        <RoomCodeCard
-          tournamentId={id}
-          hasJoined={hasJoined}
-          myRegLoading={myRegLoading}
-        />
+      {/* ── My registration card ── */}
+      {hasJoined && myReg && (
+        <SectionCard title="Your registration" subtitle="Your team details for this tournament.">
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+            <DetailRow label="Team name" value={myReg.team_name} highlight />
+            <DetailRow label="Status" value={myReg.status} />
+            <DetailRow label="Host UID" value={myReg.host_uid} />
+          </div>
+        </SectionCard>
       )}
 
-      {/* ── Long tournament bracket ── */}
-      {isLong && (
+      {/* ── Long tournament panel ── */}
+      {isLong && hasJoined && (
         <LongTournamentPanel
-          tournamentId={id}
+          tournamentId={tournament.id}
           myReg={myReg}
           totalRounds={tournament.total_rounds}
         />
       )}
 
-      {/* ── Results ── */}
-      <ResultsPanel tournament={tournament} />
+      {/* ── Room code (only when ongoing or ended and player has joined) ── */}
+      {(tournament.status === 'ongoing' || tournament.status === 'ended') && (
+        <RoomCodeCard
+          tournamentId={tournament.id}
+          hasJoined={hasJoined}
+          myRegLoading={myRegLoading}
+        />
+      )}
 
       {/* ── Registered teams ── */}
-      <RegisteredTeamsList tournamentId={id} teamSize={tournament.team_size} />
+      <RegisteredTeamsList tournamentId={tournament.id} teamSize={tournament.team_size} />
 
       {/* ── Rules ── */}
-      {(tournament.mode === 'br' || tournament.mode === 'lw') && (
-        <BRRulesSection gameName={tournament.game_name || ''} />
-      )}
+      {tournament.mode === 'br' && <BRRulesSection gameName={tournament.game_name} />}
 
-      {/* ── Register CTA (bottom, mobile) ── */}
-      {canRegister && (
-        <div className="rounded-2xl border border-sky-500/20 bg-sky-500/5 px-5 py-5 text-center">
-          <p className="mb-3 text-sm text-slate-300">Spots are filling up. Register your team now.</p>
-          <button
-            onClick={handleOpenRegSheet}
-            className="rounded-xl bg-sky-500 px-6 py-2.5 text-sm font-semibold text-slate-950 shadow-lg shadow-sky-500/20 hover:bg-sky-400 transition-colors"
-          >
-            Register Now
-          </button>
-        </div>
-      )}
+      {/* ── Results ── */}
+      <ResultsPanel tournament={tournament} />
 
     </div>
   )
