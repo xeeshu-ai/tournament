@@ -903,10 +903,7 @@ export default function TournamentDetails() {
             </div>
           </div>
         </div>
-{/* DEBUG — remove after */}
-<pre className="text-xs text-rose-300">
-  status: "{tournament?.status}" | canRegister: {String(canRegister)} | myRegLoading: {String(myRegLoading)} | hasJoined: {String(hasJoined)} | user: {String(!!user)}
-</pre>
+
         {/* Register CTA (top-right on desktop) */}
         {canRegister && !showRegForm && (
           <button
