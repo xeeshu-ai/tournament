@@ -820,7 +820,7 @@ export default function TournamentDetails() {
   const canRegister =
     !myRegLoading &&
     !hasJoined &&
-    normalizedStatus === 'upcoming' &&
+    tournament?.registration_status === 'open' &&
     user != null
 
   const isLong = tournament?.type === 'long'
