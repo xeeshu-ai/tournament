@@ -787,14 +787,11 @@ function RegisterSheet({ tournament, playerProfile, hostGameProfile, onClose, on
               <div className="flex gap-3">
                 <button onClick={() => setStep(1)} className="flex-1 rounded-xl border border-slate-700 py-3 text-sm font-medium text-slate-300 hover:bg-slate-800 transition-colors">← Back</button>
                 <button
-                  onClick={() => setStep(reviewStep)}
-                  disabled={teammates.filter(Boolean).length < need}
-                  className="flex-1 rounded-xl bg-sky-600 py-3 text-sm font-semibold text-white hover:bg-sky-500 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-                >
-                  {teammates.filter(Boolean).length < need
-                    ? `Add all teammates (${teammates.filter(Boolean).length}/${need})`
-                    : 'Continue →'}
-                </button>
+  onClick={() => setStep(reviewStep)}
+  className="flex-1 rounded-xl bg-sky-600 py-3 text-sm font-semibold text-white hover:bg-sky-500 transition-colors"
+>
+  Continue →
+</button>
               </div>
             </div>
           )}
