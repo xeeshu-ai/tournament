@@ -27,7 +27,7 @@ function DetailRow({ label, value, highlight = false }) {
   return (
     <div className="rounded-xl border border-white/10 bg-white/[0.03] px-4 py-3">
       <div className="text-[10px] uppercase tracking-[0.22em] text-slate-400">{label}</div>
-      <div className={`mt-1 text-sm font-semibold ${highlight ? 'text-sky-300' : 'text-slate-100'}`}>{value || '—'}</div>
+      <div className={`mt-1 text-sm font-semibold ${highlight ? 'text-sky-300' : 'text-slate-100'}`}>{value || '\u2014'}</div>
     </div>
   )
 }
@@ -63,7 +63,7 @@ function SectionCard({ title, subtitle, children, right }) {
   )
 }
 
-// ─── STATUS badge helper ────────────────────────────────────────────────────
+// ─── STATUS badge helper ────────────────────────────────────────────
 function StatusBadge({ status }) {
   const map = {
     upcoming:   'border-sky-500/30 bg-sky-500/10 text-sky-300',
@@ -114,7 +114,7 @@ function ResultsPanel({ tournament }) {
                   <td className="px-4 py-3 text-slate-400 font-semibold">{i + 1}</td>
                   <td className="px-4 py-3 font-medium text-slate-100">{row.team_name}</td>
                   <td className="px-4 py-3">{row.kills ?? 0}</td>
-                  <td className="px-4 py-3">{row.position ?? '—'}</td>
+                  <td className="px-4 py-3">{row.position ?? '\u2014'}</td>
                   <td className="px-4 py-3 font-semibold text-sky-300">{row.points ?? 0}</td>
                 </tr>
               ))}
@@ -296,14 +296,14 @@ function RoomCodeCard({ tournamentId, hasJoined, myRegLoading }) {
         <div className="rounded-xl border border-white/10 bg-white/[0.04] p-4">
           <div className="text-[10px] uppercase tracking-[0.18em] text-slate-400">Room ID</div>
           <div className="mt-2 flex items-center justify-between gap-3">
-            <div className="text-lg font-semibold text-slate-100 break-all">{roomCode.room_id || '—'}</div>
+            <div className="text-lg font-semibold text-slate-100 break-all">{roomCode.room_id || '\u2014'}</div>
             <button onClick={() => copy(roomCode.room_id)} className="rounded-lg border border-sky-500/20 bg-sky-500/10 px-3 py-1.5 text-xs font-semibold text-sky-300 hover:bg-sky-500/20">Copy</button>
           </div>
         </div>
         <div className="rounded-xl border border-white/10 bg-white/[0.04] p-4">
           <div className="text-[10px] uppercase tracking-[0.18em] text-slate-400">Password</div>
           <div className="mt-2 flex items-center justify-between gap-3">
-            <div className="text-lg font-semibold text-slate-100 break-all">{roomCode.room_password || '—'}</div>
+            <div className="text-lg font-semibold text-slate-100 break-all">{roomCode.room_password || '\u2014'}</div>
             <button onClick={() => copy(roomCode.room_password)} className="rounded-lg border border-sky-500/20 bg-sky-500/10 px-3 py-1.5 text-xs font-semibold text-sky-300 hover:bg-sky-500/20">Copy</button>
           </div>
         </div>
@@ -320,7 +320,6 @@ function RegisteredTeamsList({ tournamentId, teamSize }) {
     let mounted = true
     async function loadRows() {
       setLoading(true)
-      // ✅ Fixed: PostgREST not.in syntax — no quotes around values
       const { data } = await supabasePlayer
         .from('tournament_registrations')
         .select('*')
@@ -360,7 +359,7 @@ function RegisteredTeamsList({ tournamentId, teamSize }) {
                       {row.status || 'pending'}
                     </span>
                   </td>
-                  <td className="px-4 py-3">{teamSize || row.team_size || '—'}</td>
+                  <td className="px-4 py-3">{teamSize || row.team_size || '\u2014'}</td>
                 </tr>
               ))}
             </tbody>
@@ -371,7 +370,6 @@ function RegisteredTeamsList({ tournamentId, teamSize }) {
   )
 }
 
-// ✅ Fixed: queries long_brackets / long_br_matches / long_br_match_scores
 function LongTournamentPanel({ tournamentId, myReg, totalRounds }) {
   const [loading, setLoading] = React.useState(true)
   const [bracket, setBracket] = React.useState(null)
@@ -432,11 +430,11 @@ function LongTournamentPanel({ tournamentId, myReg, totalRounds }) {
 
   return (
     <div className="space-y-5">
-      <SectionCard title="Bracket progress" subtitle={`Tournament bracket — ${totalRounds || bracket?.total_rounds || 'multiple'} rounds.`}>
+      <SectionCard title="Bracket progress" subtitle={`Tournament bracket \u2014 ${totalRounds || bracket?.total_rounds || 'multiple'} rounds.`}>
         {bracket ? (
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
             <DetailRow label="Current round" value={`Round ${bracket.current_round || 1}`} highlight />
-            <DetailRow label="Total rounds" value={String(bracket.total_rounds || totalRounds || '—')} />
+            <DetailRow label="Total rounds" value={String(bracket.total_rounds || totalRounds || '\u2014')} />
             <DetailRow label="Qualified teams" value={String(bracket.qualified_count || 0)} />
             <DetailRow label="Bracket status" value={bracket.status || 'pending'} />
           </div>
@@ -449,8 +447,8 @@ function LongTournamentPanel({ tournamentId, myReg, totalRounds }) {
         <SectionCard title="Your current match" subtitle="Your match slot, round, and current scoring.">
           <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
             <DetailRow label="Team" value={myReg.team_name} highlight />
-            <DetailRow label="Round" value={`Round ${myMatchData.round_no || '—'}`} />
-            <DetailRow label="Match" value={`Match ${myMatchData.match_no || '—'}`} />
+            <DetailRow label="Round" value={`Round ${myMatchData.round_no || '\u2014'}`} />
+            <DetailRow label="Match" value={`Match ${myMatchData.match_no || '\u2014'}`} />
             <DetailRow label="Status" value={myMatchData.status || 'pending'} />
           </div>
 
@@ -480,9 +478,9 @@ function LongTournamentPanel({ tournamentId, myReg, totalRounds }) {
                         <td className={`px-4 py-3 font-medium ${isMe ? 'text-sky-300' : 'text-slate-100'}`}>
                           {t.team_name} {isMe ? <span className="ml-1 text-[10px] text-sky-400">(you)</span> : null}
                         </td>
-                        <td className="px-4 py-3">{row?.kills ?? '—'}</td>
-                        <td className="px-4 py-3">{row?.position ?? '—'}</td>
-                        <td className="px-4 py-3 font-semibold text-sky-300">{row?.points ?? '—'}</td>
+                        <td className="px-4 py-3">{row?.kills ?? '\u2014'}</td>
+                        <td className="px-4 py-3">{row?.position ?? '\u2014'}</td>
+                        <td className="px-4 py-3 font-semibold text-sky-300">{row?.points ?? '\u2014'}</td>
                       </tr>
                     )
                   })}
@@ -514,7 +512,7 @@ function LongTournamentPanel({ tournamentId, myReg, totalRounds }) {
                     <td className="px-4 py-3">{row.match_no}</td>
                     <td className={`px-4 py-3 font-medium ${row.team_name === myReg?.team_name ? 'text-sky-300' : 'text-slate-100'}`}>{row.team_name}</td>
                     <td className="px-4 py-3">{row.kills ?? 0}</td>
-                    <td className="px-4 py-3">{row.position ?? '—'}</td>
+                    <td className="px-4 py-3">{row.position ?? '\u2014'}</td>
                     <td className="px-4 py-3 font-semibold text-sky-300">{row.points ?? 0}</td>
                   </tr>
                 ))}
@@ -527,7 +525,7 @@ function LongTournamentPanel({ tournamentId, myReg, totalRounds }) {
   )
 }
 
-// ─── REGISTRATION FORM ───────────────────────────────────────────────────────
+// ─── REGISTRATION FORM ───────────────────────────────────────────────
 function RegistrationForm({ tournament, profile, onSuccess, onCancel }) {
   const [teamName, setTeamName] = React.useState('')
   const [members, setMembers] = React.useState([{ name: '', uid: '' }])
@@ -656,7 +654,7 @@ function RegistrationForm({ tournament, profile, onSuccess, onCancel }) {
 
       <div className="flex gap-3 pt-1">
         <button type="submit" disabled={submitting} className="flex-1 rounded-xl bg-sky-500 px-4 py-2.5 text-sm font-semibold text-slate-950 hover:bg-sky-400 disabled:opacity-50 transition-colors">
-          {submitting ? 'Registering…' : 'Register'}
+          {submitting ? 'Registering\u2026' : 'Register'}
         </button>
         <button type="button" onClick={onCancel} className="rounded-xl border border-white/10 px-4 py-2.5 text-sm font-medium text-slate-300 hover:bg-white/[0.04] transition-colors">
           Cancel
@@ -681,7 +679,7 @@ export default function TournamentDetails() {
   const [error, setError] = React.useState('')
   const [success, setSuccess] = React.useState('')
 
-  // ── Load tournament ──────────────────────────────────────────────────────
+  // ── Load tournament ─────────────────────────────────────────────────────────────────────
   const refetchTournament = React.useCallback(async () => {
     if (!id) return
     const { data } = await supabasePlayer.from('tournaments').select('*').eq('id', id).single()
@@ -717,13 +715,13 @@ export default function TournamentDetails() {
     return () => { mounted = false; supabasePlayer.removeChannel(channel) }
   }, [id, refetchTournament])
 
-  // ── Reset registration state instantly when tournament changes ───────────
+  // ── Reset registration state instantly when tournament changes ───────────────────
 React.useEffect(() => {
   setMyReg(undefined)
   setMyRegLoading(true)
 }, [id])
 
-// ── Check my registration ────────────────────────────────────────────────
+// ── Check my registration ────────────────────────────────────────────────────────────────
 React.useEffect(() => {
   if (authLoading) return
   if (!user || !profile?.id || !id) {
@@ -731,59 +729,77 @@ React.useEffect(() => {
     setMyRegLoading(false)
     return
   }
-  if (!tournament?.game_id) return
+  if (!tournament) return  // ✅ fixed: wait for tournament to load, but do NOT require game_id
 
   let cancelled = false
 
   async function checkMyReg() {
     setMyRegLoading(true)
-    const { data: gameProfile } = await supabasePlayer
-      .from('game_profiles')
-      .select('game_uid')
-      .eq('player_id', profile.id)
-      .eq('game_id', tournament.game_id)
-      .eq('status', 'verified')
-      .maybeSingle()
 
-    if (cancelled) return
+    // If tournament has a game_id, check for a verified game profile
+    if (tournament.game_id) {
+      const { data: gameProfile } = await supabasePlayer
+        .from('game_profiles')
+        .select('game_uid')
+        .eq('player_id', profile.id)
+        .eq('game_id', tournament.game_id)
+        .eq('status', 'verified')
+        .maybeSingle()
 
-    if (!gameProfile?.game_uid) {
-      setMyReg(null)
+      if (cancelled) return
+
+      if (!gameProfile?.game_uid) {
+        setMyReg(null)
+        setMyRegLoading(false)
+        return
+      }
+
+      const { data: asHost } = await supabasePlayer
+        .from('tournament_registrations')
+        .select('*')
+        .eq('tournament_id', id)
+        .eq('host_uid', gameProfile.game_uid)
+        .not('status', 'in', '(rejected,cancelled)')
+        .limit(1)
+        .maybeSingle()
+
+      if (cancelled) return
+      if (asHost) { setMyReg(asHost); setMyRegLoading(false); return }
+
+      const { data: asMember } = await supabasePlayer
+        .from('registration_members')
+        .select('registration_id, game_uid, tournament_registrations!inner(id, team_name, status, host_uid, tournament_id)')
+        .eq('tournament_id', id)
+        .eq('game_uid', gameProfile.game_uid)
+        .not('tournament_registrations.status', 'in', '(rejected,cancelled)')
+        .maybeSingle()
+
+      if (cancelled) return
+      setMyReg(asMember?.tournament_registrations ?? null)
       setMyRegLoading(false)
       return
     }
 
+    // No game_id on tournament — fall back to player_id lookup
     const { data: asHost } = await supabasePlayer
       .from('tournament_registrations')
       .select('*')
       .eq('tournament_id', id)
-      .eq('host_uid', gameProfile.game_uid)
+      .eq('player_id', profile.id)
       .not('status', 'in', '(rejected,cancelled)')
       .limit(1)
       .maybeSingle()
 
     if (cancelled) return
-    if (asHost) { setMyReg(asHost); setMyRegLoading(false); return }
-
-    const { data: asMember } = await supabasePlayer
-      .from('registration_members')
-      .select('registration_id, game_uid, tournament_registrations!inner(id, team_name, status, host_uid, tournament_id)')
-      .eq('tournament_id', id)
-      .eq('game_uid', gameProfile.game_uid)
-      .not('tournament_registrations.status', 'in', '(rejected,cancelled)')
-      .maybeSingle()
-
-    if (cancelled) return
-
-    setMyReg(asMember?.tournament_registrations ?? null)
+    setMyReg(asHost ?? null)
     setMyRegLoading(false)
   }
 
   checkMyReg()
   return () => { cancelled = true }
-}, [authLoading, user, profile?.id, id, tournament?.game_id])
+}, [authLoading, user, profile?.id, id, tournament])
 
-  // ── Derived state ────────────────────────────────────────────────────────
+  // ── Derived state ─────────────────────────────────────────────────────────────────────
   const hasJoined = !!myReg
   const canRegister =
     !myRegLoading &&
@@ -793,7 +809,7 @@ React.useEffect(() => {
 
   const isLong = tournament?.type === 'long'
 
-  // ── Loading / not found ──────────────────────────────────────────────────
+  // ── Loading / not found ───────────────────────────────────────────────────────────────────
   if (loading) {
     return (
       <div className="flex min-h-[40vh] items-center justify-center">
@@ -819,7 +835,7 @@ React.useEffect(() => {
     )
   }
 
-  // ── Page ─────────────────────────────────────────────────────────────────
+  // ── Page ─────────────────────────────────────────────────────────────────────────────────
   return (
     <div className="space-y-6">
 
@@ -916,12 +932,12 @@ React.useEffect(() => {
       {/* ── Tournament info ── */}
       <SectionCard title="Tournament details" subtitle="Overview and configuration for this event.">
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-          <DetailRow label="Entry fee" value={tournament.entry_fee ? `₹${tournament.entry_fee}` : 'Free'} />
-          <DetailRow label="Prize pool" value={tournament.prize_pool ? `₹${tournament.prize_pool}` : '—'} />
-          <DetailRow label="Team size" value={tournament.team_size ? `${tournament.team_size}v${tournament.team_size}` : '—'} />
-          <DetailRow label="Max teams" value={tournament.max_teams ? String(tournament.max_teams) : '—'} />
-          <DetailRow label="Match date" value={tournament.match_date || '—'} />
-          <DetailRow label="Match time" value={tournament.match_time || '—'} />
+          <DetailRow label="Entry fee" value={tournament.entry_fee ? `\u20b9${tournament.entry_fee}` : 'Free'} />
+          <DetailRow label="Prize pool" value={tournament.prize_pool ? `\u20b9${tournament.prize_pool}` : '\u2014'} />
+          <DetailRow label="Team size" value={tournament.team_size ? `${tournament.team_size}v${tournament.team_size}` : '\u2014'} />
+          <DetailRow label="Max teams" value={tournament.max_teams ? String(tournament.max_teams) : '\u2014'} />
+          <DetailRow label="Match date" value={tournament.match_date || '\u2014'} />
+          <DetailRow label="Match time" value={tournament.match_time || '\u2014'} />
         </div>
         {tournament.description && (
           <p className="mt-4 text-sm text-slate-300 leading-relaxed">{tournament.description}</p>
