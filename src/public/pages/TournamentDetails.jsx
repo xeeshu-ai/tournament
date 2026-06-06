@@ -717,62 +717,71 @@ export default function TournamentDetails() {
     return () => { mounted = false; supabasePlayer.removeChannel(channel) }
   }, [id, refetchTournament])
 
-  // ── Check my registration ────────────────────────────────────────────────
-  React.useEffect(() => {
-    if (authLoading) return
-    if (!user || !profile?.id || !id || !tournament?.game_id) {
+  // ── Reset registration state instantly when tournament changes ───────────
+React.useEffect(() => {
+  setMyReg(undefined)
+  setMyRegLoading(true)
+}, [id])
+
+// ── Check my registration ────────────────────────────────────────────────
+React.useEffect(() => {
+  if (authLoading) return
+  if (!user || !profile?.id || !id) {
+    setMyReg(null)
+    setMyRegLoading(false)
+    return
+  }
+  if (!tournament?.game_id) return
+
+  let cancelled = false
+
+  async function checkMyReg() {
+    setMyRegLoading(true)
+    const { data: gameProfile } = await supabasePlayer
+      .from('game_profiles')
+      .select('game_uid')
+      .eq('player_id', profile.id)
+      .eq('game_id', tournament.game_id)
+      .eq('status', 'verified')
+      .maybeSingle()
+
+    if (cancelled) return
+
+    if (!gameProfile?.game_uid) {
       setMyReg(null)
       setMyRegLoading(false)
       return
     }
 
-    async function checkMyReg() {
-      setMyRegLoading(true)
-      const { data: gameProfile } = await supabasePlayer
-        .from('game_profiles')
-        .select('game_uid')
-        .eq('player_id', profile.id)
-        .eq('game_id', tournament.game_id)
-        .eq('status', 'verified')
-        .maybeSingle()
+    const { data: asHost } = await supabasePlayer
+      .from('tournament_registrations')
+      .select('*')
+      .eq('tournament_id', id)
+      .eq('host_uid', gameProfile.game_uid)
+      .not('status', 'in', '(rejected,cancelled)')
+      .limit(1)
+      .maybeSingle()
 
-      if (!gameProfile?.game_uid) {
-        setMyReg(null)
-        setMyRegLoading(false)
-        return
-      }
+    if (cancelled) return
+    if (asHost) { setMyReg(asHost); setMyRegLoading(false); return }
 
-      // Check as host
-      const { data: asHost } = await supabasePlayer
-        .from('tournament_registrations')
-        .select('*')
-        .eq('tournament_id', id)
-        .eq('host_uid', gameProfile.game_uid)
-        .not('status', 'in', '(rejected,cancelled)')
-        .limit(1)
-        .maybeSingle()
+    const { data: asMember } = await supabasePlayer
+      .from('registration_members')
+      .select('registration_id, game_uid, tournament_registrations!inner(id, team_name, status, host_uid, tournament_id)')
+      .eq('tournament_id', id)
+      .eq('game_uid', gameProfile.game_uid)
+      .not('tournament_registrations.status', 'in', '(rejected,cancelled)')
+      .maybeSingle()
 
-      if (asHost) { setMyReg(asHost); setMyRegLoading(false); return }
+    if (cancelled) return
 
-      // Check as member
-      const { data: asMember } = await supabasePlayer
-        .from('registration_members')
-        .select('registration_id, game_uid, tournament_registrations!inner(id, team_name, status, host_uid, tournament_id)')
-        .eq('tournament_id', id)
-        .eq('game_uid', gameProfile.game_uid)
-        .not('tournament_registrations.status', 'in', '(rejected,cancelled)')
-        .maybeSingle()
+    setMyReg(asMember?.tournament_registrations ?? null)
+    setMyRegLoading(false)
+  }
 
-      if (asMember?.tournament_registrations) {
-        setMyReg(asMember.tournament_registrations)
-      } else {
-        setMyReg(null)
-      }
-      setMyRegLoading(false)
-    }
-
-    checkMyReg()
-  }, [authLoading, user, profile?.id, id, tournament?.game_id])
+  checkMyReg()
+  return () => { cancelled = true }
+}, [authLoading, user, profile?.id, id, tournament?.game_id])
 
   // ── Derived state ────────────────────────────────────────────────────────
   const hasJoined = !!myReg
