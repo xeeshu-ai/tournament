@@ -78,33 +78,64 @@ function StatusBadge({ status }) {
   )
 }
 
+// ─── Result normalisation helpers ────────────────────────────────────────────
+// Admin saves results in two shapes depending on the mode:
+//   BR  → tournament.br_results  = array of { team_name, kills, position, points }
+//         (also legacy: tournament.single_br_results)
+//   CS/LW → tournament.cs_lw_results = { total_rounds, objective_rounds, matches: [{team_name, wins, losses}] }
+//            OR (older) array of { team_name, wins, losses }
+//   TDM → tournament.tdm_results = { kill_target, matches: [{team_name, kills}] }
+//          OR (older) array of { team_name, kills }
+
+function normaliseBRRows(tournament) {
+  const raw = tournament?.br_results ?? tournament?.single_br_results
+  if (Array.isArray(raw) && raw.length > 0) return raw
+  if (raw && typeof raw === 'object' && Array.isArray(raw.matches) && raw.matches.length > 0) return raw.matches
+  return []
+}
+
+function normaliseCSLWRows(tournament) {
+  const raw = tournament?.cs_lw_results
+  if (!raw) return []
+  if (Array.isArray(raw) && raw.length > 0) return raw
+  if (typeof raw === 'object' && Array.isArray(raw.matches) && raw.matches.length > 0) return raw.matches
+  return []
+}
+
+function normaliseTDMRows(tournament) {
+  const raw = tournament?.tdm_results
+  if (!raw) return []
+  if (Array.isArray(raw) && raw.length > 0) return raw
+  if (typeof raw === 'object' && Array.isArray(raw.matches) && raw.matches.length > 0) return raw.matches
+  return []
+}
+
 // ─── Results Panel ────────────────────────────────────────────────────────────
-// Fetches match results from the DB when status is ended.
-// Covers: CS/LW (rounds from single_matches + cs_lw_results), BR, TDM.
 function ResultsPanel({ tournament }) {
   const [loading, setLoading] = React.useState(false)
-  const [matchResults, setMatchResults] = React.useState(null) // for CS/LW bracket matches
+  const [matchResults, setMatchResults] = React.useState(null)
 
-  const isBR  = tournament?.mode === 'br'
+  const isBR   = tournament?.mode === 'br'
   const isCSLW = tournament?.mode === 'cs' || tournament?.mode === 'lw'
   const isTDM  = tournament?.mode === 'tdm'
 
-  // Static results stored directly on the tournament row
-  const hasBRResults  = isBR  && Array.isArray(tournament.single_br_results)  && tournament.single_br_results.length  > 0
-  const hasCSLWStatic = isCSLW && Array.isArray(tournament.cs_lw_results)      && tournament.cs_lw_results.length      > 0
-  const hasTDMResults = isTDM  && Array.isArray(tournament.tdm_results)        && tournament.tdm_results.length        > 0
+  const brRows   = isBR   ? normaliseBRRows(tournament)   : []
+  const cslwRows = isCSLW ? normaliseCSLWRows(tournament) : []
+  const tdmRows  = isTDM  ? normaliseTDMRows(tournament)  : []
+
+  const hasBRResults  = brRows.length > 0
+  const hasCSLWStatic = cslwRows.length > 0
+  const hasTDMResults = tdmRows.length > 0
 
   const isEnded = tournament?.status === 'ended'
 
-  // Fetch bracket-based match results for CS/LW single tournaments
   React.useEffect(() => {
     if (!isEnded) return
     if (!isCSLW) return
-    if (hasCSLWStatic) return // already have them inline
+    if (hasCSLWStatic) return
     let mounted = true
     setLoading(true)
     async function fetchMatchResults() {
-      // single_matches table stores individual bracket matches with winner info
       const { data: matches } = await supabasePlayer
         .from('single_matches')
         .select('*')
@@ -141,7 +172,7 @@ function ResultsPanel({ tournament }) {
               </tr>
             </thead>
             <tbody className="divide-y divide-white/5 text-slate-200">
-              {tournament.single_br_results.map((row, i) => (
+              {brRows.map((row, i) => (
                 <tr key={`${row.team_name}-${i}`}>
                   <td className="px-4 py-3 text-slate-400 font-semibold">{i + 1}</td>
                   <td className="px-4 py-3 font-medium text-slate-100">{row.team_name}</td>
@@ -155,7 +186,7 @@ function ResultsPanel({ tournament }) {
         </div>
       )}
 
-      {/* ── CS / LW static results (from tournament column) ── */}
+      {/* ── CS / LW static results ── */}
       {hasCSLWStatic && (
         <div className="overflow-hidden rounded-xl border border-white/10">
           <table className="min-w-full divide-y divide-white/10 text-sm">
@@ -168,7 +199,7 @@ function ResultsPanel({ tournament }) {
               </tr>
             </thead>
             <tbody className="divide-y divide-white/5 text-slate-200">
-              {tournament.cs_lw_results.map((row, i) => (
+              {cslwRows.map((row, i) => (
                 <tr key={`${row.team_name}-${i}`}>
                   <td className="px-4 py-3 text-slate-400 font-semibold">{i + 1}</td>
                   <td className="px-4 py-3 font-medium text-slate-100">{row.team_name}</td>
@@ -189,7 +220,6 @@ function ResultsPanel({ tournament }) {
           </div>
         ) : matchResults && matchResults.length > 0 ? (
           <div className="space-y-4">
-            {/* Group by round */}
             {Array.from(new Set(matchResults.map(m => m.round_no))).map(round => {
               const roundMatches = matchResults.filter(m => m.round_no === round)
               return (
@@ -208,7 +238,6 @@ function ResultsPanel({ tournament }) {
                             )}
                           </div>
                           <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-3">
-                            {/* Team A */}
                             {teams[0] ? (
                               <div className={`rounded-xl border p-3 text-center ${
                                 winner === teams[0].team_name
@@ -233,7 +262,6 @@ function ResultsPanel({ tournament }) {
 
                             <div className="text-xs font-bold text-slate-500">VS</div>
 
-                            {/* Team B */}
                             {teams[1] ? (
                               <div className={`rounded-xl border p-3 text-center ${
                                 winner === teams[1].team_name
@@ -283,7 +311,7 @@ function ResultsPanel({ tournament }) {
               </tr>
             </thead>
             <tbody className="divide-y divide-white/5 text-slate-200">
-              {tournament.tdm_results.map((row, i) => (
+              {tdmRows.map((row, i) => (
                 <tr key={`${row.team_name}-${i}`}>
                   <td className="px-4 py-3 text-slate-400 font-semibold">{i + 1}</td>
                   <td className="px-4 py-3 font-medium text-slate-100">{row.team_name}</td>
