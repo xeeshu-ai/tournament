@@ -152,24 +152,19 @@ export const TOURNAMENT_TYPES = [
 ];
 
 /**
- * BGMI BR scoring (standard tournament formula):
- *   Position points:  #1=15, #2=12, #3=10, #4=8, #5=6, #6-#10=4, #11-#15=2, else 0
- *   Kill points: 1 per kill
- *
- * Free Fire formula (legacy):
- *   Points = ((kills + 1) / position) * 100
+ * BR scoring formula (applies to both BGMI and Free Fire):
+ *   Base points  = Math.round(((kills + 1) / position) * 10)
+ *   Finish bonus = 10 for 1st, 7 for 2nd, 5 for 3rd, 3 for 4th, 0 otherwise
+ *   Total        = base + finish bonus
  */
-export function calculateBrPoints(kills, position, gameId) {
+export const BR_FINISH_BONUS = { 1: 10, 2: 7, 3: 5, 4: 3 };
+
+export function calculateBrPoints(kills, position) {
   const k = Number(kills) || 0;
   const p = Number(position) || 1;
-
-  if (gameId === 'bgmi') {
-    const posTable = [15, 12, 10, 8, 6, 4, 4, 4, 4, 4, 2, 2, 2, 2, 2];
-    const posPts = posTable[p - 1] ?? 0;
-    return posPts + k;
-  }
-  // Free Fire
-  return Math.round(((k + 1) / p) * 100);
+  const base = Math.round(((k + 1) / p) * 10);
+  const bonus = BR_FINISH_BONUS[p] ?? 0;
+  return base + bonus;
 }
 
 /**
