@@ -129,10 +129,10 @@ function ResultsPanel({ tournament }) {
 
   const isEnded = tournament?.status === 'ended'
 
+  // Fetch single_matches for ANY mode when no static results exist
   React.useEffect(() => {
     if (!isEnded) return
-    if (!isCSLW) return
-    if (hasCSLWStatic) return
+    if (hasBRResults || hasCSLWStatic || hasTDMResults) return // static results exist, skip fetch
     let mounted = true
     setLoading(true)
     async function fetchMatchResults() {
@@ -148,9 +148,12 @@ function ResultsPanel({ tournament }) {
     }
     fetchMatchResults()
     return () => { mounted = false }
-  }, [tournament?.id, isEnded, isCSLW, hasCSLWStatic])
+  }, [tournament?.id, isEnded, hasBRResults, hasCSLWStatic, hasTDMResults])
 
   if (!isEnded) return null
+
+  const hasMatchResults = matchResults && matchResults.length > 0
+  const hasAnyResults = hasBRResults || hasCSLWStatic || hasTDMResults || hasMatchResults
 
   return (
     <SectionCard title="Results" subtitle="Final standings for this tournament.">
@@ -158,7 +161,7 @@ function ResultsPanel({ tournament }) {
         This tournament has ended. Final results are shown below.
       </div>
 
-      {/* ── BR results ── */}
+      {/* ── BR static results ── */}
       {hasBRResults && (
         <div className="overflow-hidden rounded-xl border border-white/10">
           <table className="min-w-full divide-y divide-white/10 text-sm">
@@ -186,7 +189,7 @@ function ResultsPanel({ tournament }) {
         </div>
       )}
 
-      {/* ── CS / LW static results ── */}
+      {/* ── CS/LW static results ── */}
       {hasCSLWStatic && (
         <div className="overflow-hidden rounded-xl border border-white/10">
           <table className="min-w-full divide-y divide-white/10 text-sm">
@@ -212,94 +215,7 @@ function ResultsPanel({ tournament }) {
         </div>
       )}
 
-      {/* ── CS / LW bracket match results (fetched from single_matches) ── */}
-      {isCSLW && !hasCSLWStatic && (
-        loading ? (
-          <div className="flex items-center gap-2 text-sm text-slate-400">
-            <LoadingDots /><span>Loading match results…</span>
-          </div>
-        ) : matchResults && matchResults.length > 0 ? (
-          <div className="space-y-4">
-            {Array.from(new Set(matchResults.map(m => m.round_no))).map(round => {
-              const roundMatches = matchResults.filter(m => m.round_no === round)
-              return (
-                <div key={round}>
-                  <div className="mb-2 text-[11px] uppercase tracking-[0.18em] text-slate-400 font-semibold">Round {round}</div>
-                  <div className="space-y-2">
-                    {roundMatches.map((match, mi) => {
-                      const teams = Array.isArray(match.teams) ? match.teams : []
-                      const winner = match.winner_team_name || match.winner
-                      return (
-                        <div key={match.id || mi} className="rounded-xl border border-white/10 bg-white/[0.03] p-4">
-                          <div className="text-[10px] uppercase tracking-[0.18em] text-slate-500 mb-3">
-                            Match {match.match_no}
-                            {match.status === 'completed' && (
-                              <span className="ml-2 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 text-emerald-400">Completed</span>
-                            )}
-                          </div>
-                          <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-3">
-                            {teams[0] ? (
-                              <div className={`rounded-xl border p-3 text-center ${
-                                winner === teams[0].team_name
-                                  ? 'border-emerald-500/40 bg-emerald-500/10'
-                                  : 'border-white/10 bg-white/[0.02]'
-                              }`}>
-                                <div className={`text-sm font-bold ${
-                                  winner === teams[0].team_name ? 'text-emerald-300' : 'text-slate-100'
-                                }`}>{teams[0].team_name}</div>
-                                {(match.team_a_rounds != null || teams[0].rounds_won != null) && (
-                                  <div className="mt-1 text-2xl font-black text-slate-100">
-                                    {match.team_a_rounds ?? teams[0].rounds_won ?? 0}
-                                  </div>
-                                )}
-                                {winner === teams[0].team_name && (
-                                  <div className="mt-1 text-[10px] font-semibold uppercase tracking-wider text-emerald-400">Winner</div>
-                                )}
-                              </div>
-                            ) : (
-                              <div className="rounded-xl border border-white/10 bg-white/[0.02] p-3 text-center text-slate-600">TBD</div>
-                            )}
-
-                            <div className="text-xs font-bold text-slate-500">VS</div>
-
-                            {teams[1] ? (
-                              <div className={`rounded-xl border p-3 text-center ${
-                                winner === teams[1].team_name
-                                  ? 'border-emerald-500/40 bg-emerald-500/10'
-                                  : 'border-white/10 bg-white/[0.02]'
-                              }`}>
-                                <div className={`text-sm font-bold ${
-                                  winner === teams[1].team_name ? 'text-emerald-300' : 'text-slate-100'
-                                }`}>{teams[1].team_name}</div>
-                                {(match.team_b_rounds != null || teams[1].rounds_won != null) && (
-                                  <div className="mt-1 text-2xl font-black text-slate-100">
-                                    {match.team_b_rounds ?? teams[1].rounds_won ?? 0}
-                                  </div>
-                                )}
-                                {winner === teams[1].team_name && (
-                                  <div className="mt-1 text-[10px] font-semibold uppercase tracking-wider text-emerald-400">Winner</div>
-                                )}
-                              </div>
-                            ) : (
-                              <div className="rounded-xl border border-white/10 bg-white/[0.02] p-3 text-center text-slate-600">TBD</div>
-                            )}
-                          </div>
-                        </div>
-                      )
-                    })}
-                  </div>
-                </div>
-              )
-            })}
-          </div>
-        ) : (
-          <div className="rounded-xl border border-white/10 bg-white/[0.03] px-4 py-3 text-sm text-slate-300">
-            Results are not available yet.
-          </div>
-        )
-      )}
-
-      {/* ── TDM results ── */}
+      {/* ── TDM static results ── */}
       {hasTDMResults && (
         <div className="overflow-hidden rounded-xl border border-white/10 mt-4">
           <table className="min-w-full divide-y divide-white/10 text-sm">
@@ -323,11 +239,65 @@ function ResultsPanel({ tournament }) {
         </div>
       )}
 
-      {/* No results at all */}
-      {!hasBRResults && !hasCSLWStatic && !hasTDMResults && (!isCSLW || (!loading && (!matchResults || matchResults.length === 0))) && (
-        <div className="rounded-xl border border-white/10 bg-white/[0.03] px-4 py-3 text-sm text-slate-300">
-          Results are not available yet.
-        </div>
+      {/* ── single_matches fallback for ALL modes ── */}
+      {!hasBRResults && !hasCSLWStatic && !hasTDMResults && (
+        loading ? (
+          <div className="flex items-center gap-2 text-sm text-slate-400">
+            <LoadingDots /><span>Loading match results…</span>
+          </div>
+        ) : hasMatchResults ? (
+          <div className="space-y-4">
+            {Array.from(new Set(matchResults.map(m => m.round_no))).map(round => {
+              const roundMatches = matchResults.filter(m => m.round_no === round)
+              return (
+                <div key={round}>
+                  <div className="mb-2 text-[11px] uppercase tracking-[0.18em] text-slate-400 font-semibold">Round {round}</div>
+                  <div className="space-y-2">
+                    {roundMatches.map((match, mi) => {
+                      const teams = Array.isArray(match.teams) ? match.teams : []
+                      const winner = match.winner_team_name || match.winner
+                      return (
+                        <div key={match.id || mi} className="rounded-xl border border-white/10 bg-white/[0.03] p-4">
+                          <div className="text-[10px] uppercase tracking-[0.18em] text-slate-500 mb-3">
+                            Match {match.match_no}
+                            {match.status === 'completed' && (
+                              <span className="ml-2 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 text-emerald-400">Completed</span>
+                            )}
+                          </div>
+                          <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-3">
+                            {teams[0] ? (
+                              <div className={`rounded-xl border p-3 text-center ${winner === teams[0].team_name ? 'border-emerald-500/40 bg-emerald-500/10' : 'border-white/10 bg-white/[0.02]'}`}>
+                                <div className={`text-sm font-bold ${winner === teams[0].team_name ? 'text-emerald-300' : 'text-slate-100'}`}>{teams[0].team_name}</div>
+                                {(match.team_a_rounds != null || teams[0].rounds_won != null) && (
+                                  <div className="mt-1 text-2xl font-black text-slate-100">{match.team_a_rounds ?? teams[0].rounds_won ?? 0}</div>
+                                )}
+                                {winner === teams[0].team_name && <div className="mt-1 text-[10px] font-semibold uppercase tracking-wider text-emerald-400">Winner</div>}
+                              </div>
+                            ) : <div className="rounded-xl border border-white/10 bg-white/[0.02] p-3 text-center text-slate-600">TBD</div>}
+                            <div className="text-xs font-bold text-slate-500">VS</div>
+                            {teams[1] ? (
+                              <div className={`rounded-xl border p-3 text-center ${winner === teams[1].team_name ? 'border-emerald-500/40 bg-emerald-500/10' : 'border-white/10 bg-white/[0.02]'}`}>
+                                <div className={`text-sm font-bold ${winner === teams[1].team_name ? 'text-emerald-300' : 'text-slate-100'}`}>{teams[1].team_name}</div>
+                                {(match.team_b_rounds != null || teams[1].rounds_won != null) && (
+                                  <div className="mt-1 text-2xl font-black text-slate-100">{match.team_b_rounds ?? teams[1].rounds_won ?? 0}</div>
+                                )}
+                                {winner === teams[1].team_name && <div className="mt-1 text-[10px] font-semibold uppercase tracking-wider text-emerald-400">Winner</div>}
+                              </div>
+                            ) : <div className="rounded-xl border border-white/10 bg-white/[0.02] p-3 text-center text-slate-600">TBD</div>}
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        ) : (
+          <div className="rounded-xl border border-white/10 bg-white/[0.03] px-4 py-3 text-sm text-slate-300">
+            Results are not available yet.
+          </div>
+        )
       )}
     </SectionCard>
   )
