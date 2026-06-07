@@ -63,7 +63,6 @@ function SectionCard({ title, subtitle, children, right }) {
   )
 }
 
-// ─── STATUS badge helper ────────────────────────────────────────────
 function StatusBadge({ status }) {
   const map = {
     upcoming:   'border-sky-500/30 bg-sky-500/10 text-sky-300',
@@ -79,24 +78,57 @@ function StatusBadge({ status }) {
   )
 }
 
+// ─── Results Panel ────────────────────────────────────────────────────────────
+// Fetches match results from the DB when status is ended.
+// Covers: CS/LW (rounds from single_matches + cs_lw_results), BR, TDM.
 function ResultsPanel({ tournament }) {
-  const isBR = tournament?.mode === 'br'
-  const hasResults =
-    (isBR && Array.isArray(tournament.single_br_results) && tournament.single_br_results.length > 0) ||
-    (!isBR && Array.isArray(tournament.cs_lw_results) && tournament.cs_lw_results.length > 0) ||
-    (Array.isArray(tournament.tdm_results) && tournament.tdm_results.length > 0)
+  const [loading, setLoading] = React.useState(false)
+  const [matchResults, setMatchResults] = React.useState(null) // for CS/LW bracket matches
 
-  if (!hasResults && tournament.status !== 'ended') return null
+  const isBR  = tournament?.mode === 'br'
+  const isCSLW = tournament?.mode === 'cs' || tournament?.mode === 'lw'
+  const isTDM  = tournament?.mode === 'tdm'
+
+  // Static results stored directly on the tournament row
+  const hasBRResults  = isBR  && Array.isArray(tournament.single_br_results)  && tournament.single_br_results.length  > 0
+  const hasCSLWStatic = isCSLW && Array.isArray(tournament.cs_lw_results)      && tournament.cs_lw_results.length      > 0
+  const hasTDMResults = isTDM  && Array.isArray(tournament.tdm_results)        && tournament.tdm_results.length        > 0
+
+  const isEnded = tournament?.status === 'ended'
+
+  // Fetch bracket-based match results for CS/LW single tournaments
+  React.useEffect(() => {
+    if (!isEnded) return
+    if (!isCSLW) return
+    if (hasCSLWStatic) return // already have them inline
+    let mounted = true
+    setLoading(true)
+    async function fetchMatchResults() {
+      // single_matches table stores individual bracket matches with winner info
+      const { data: matches } = await supabasePlayer
+        .from('single_matches')
+        .select('*')
+        .eq('tournament_id', tournament.id)
+        .order('round_no', { ascending: true })
+        .order('match_no', { ascending: true })
+      if (!mounted) return
+      setMatchResults(matches || [])
+      setLoading(false)
+    }
+    fetchMatchResults()
+    return () => { mounted = false }
+  }, [tournament?.id, isEnded, isCSLW, hasCSLWStatic])
+
+  if (!isEnded) return null
 
   return (
-    <SectionCard title="Results" subtitle="Published standings for this tournament.">
-      {tournament.status === 'ended' && (
-        <div className="mb-4 rounded-xl border border-emerald-500/20 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-200">
-          This tournament has ended. Final results are shown below.
-        </div>
-      )}
+    <SectionCard title="Results" subtitle="Final standings for this tournament.">
+      <div className="mb-4 rounded-xl border border-emerald-500/20 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-200">
+        This tournament has ended. Final results are shown below.
+      </div>
 
-      {isBR && Array.isArray(tournament.single_br_results) && tournament.single_br_results.length > 0 ? (
+      {/* ── BR results ── */}
+      {hasBRResults && (
         <div className="overflow-hidden rounded-xl border border-white/10">
           <table className="min-w-full divide-y divide-white/10 text-sm">
             <thead className="bg-white/[0.04] text-[11px] uppercase tracking-[0.18em] text-slate-400">
@@ -121,9 +153,10 @@ function ResultsPanel({ tournament }) {
             </tbody>
           </table>
         </div>
-      ) : null}
+      )}
 
-      {!isBR && Array.isArray(tournament.cs_lw_results) && tournament.cs_lw_results.length > 0 ? (
+      {/* ── CS / LW static results (from tournament column) ── */}
+      {hasCSLWStatic && (
         <div className="overflow-hidden rounded-xl border border-white/10">
           <table className="min-w-full divide-y divide-white/10 text-sm">
             <thead className="bg-white/[0.04] text-[11px] uppercase tracking-[0.18em] text-slate-400">
@@ -146,9 +179,100 @@ function ResultsPanel({ tournament }) {
             </tbody>
           </table>
         </div>
-      ) : null}
+      )}
 
-      {Array.isArray(tournament.tdm_results) && tournament.tdm_results.length > 0 ? (
+      {/* ── CS / LW bracket match results (fetched from single_matches) ── */}
+      {isCSLW && !hasCSLWStatic && (
+        loading ? (
+          <div className="flex items-center gap-2 text-sm text-slate-400">
+            <LoadingDots /><span>Loading match results…</span>
+          </div>
+        ) : matchResults && matchResults.length > 0 ? (
+          <div className="space-y-4">
+            {/* Group by round */}
+            {Array.from(new Set(matchResults.map(m => m.round_no))).map(round => {
+              const roundMatches = matchResults.filter(m => m.round_no === round)
+              return (
+                <div key={round}>
+                  <div className="mb-2 text-[11px] uppercase tracking-[0.18em] text-slate-400 font-semibold">Round {round}</div>
+                  <div className="space-y-2">
+                    {roundMatches.map((match, mi) => {
+                      const teams = Array.isArray(match.teams) ? match.teams : []
+                      const winner = match.winner_team_name || match.winner
+                      return (
+                        <div key={match.id || mi} className="rounded-xl border border-white/10 bg-white/[0.03] p-4">
+                          <div className="text-[10px] uppercase tracking-[0.18em] text-slate-500 mb-3">
+                            Match {match.match_no}
+                            {match.status === 'completed' && (
+                              <span className="ml-2 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 text-emerald-400">Completed</span>
+                            )}
+                          </div>
+                          <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-3">
+                            {/* Team A */}
+                            {teams[0] ? (
+                              <div className={`rounded-xl border p-3 text-center ${
+                                winner === teams[0].team_name
+                                  ? 'border-emerald-500/40 bg-emerald-500/10'
+                                  : 'border-white/10 bg-white/[0.02]'
+                              }`}>
+                                <div className={`text-sm font-bold ${
+                                  winner === teams[0].team_name ? 'text-emerald-300' : 'text-slate-100'
+                                }`}>{teams[0].team_name}</div>
+                                {(match.team_a_rounds != null || teams[0].rounds_won != null) && (
+                                  <div className="mt-1 text-2xl font-black text-slate-100">
+                                    {match.team_a_rounds ?? teams[0].rounds_won ?? 0}
+                                  </div>
+                                )}
+                                {winner === teams[0].team_name && (
+                                  <div className="mt-1 text-[10px] font-semibold uppercase tracking-wider text-emerald-400">Winner</div>
+                                )}
+                              </div>
+                            ) : (
+                              <div className="rounded-xl border border-white/10 bg-white/[0.02] p-3 text-center text-slate-600">TBD</div>
+                            )}
+
+                            <div className="text-xs font-bold text-slate-500">VS</div>
+
+                            {/* Team B */}
+                            {teams[1] ? (
+                              <div className={`rounded-xl border p-3 text-center ${
+                                winner === teams[1].team_name
+                                  ? 'border-emerald-500/40 bg-emerald-500/10'
+                                  : 'border-white/10 bg-white/[0.02]'
+                              }`}>
+                                <div className={`text-sm font-bold ${
+                                  winner === teams[1].team_name ? 'text-emerald-300' : 'text-slate-100'
+                                }`}>{teams[1].team_name}</div>
+                                {(match.team_b_rounds != null || teams[1].rounds_won != null) && (
+                                  <div className="mt-1 text-2xl font-black text-slate-100">
+                                    {match.team_b_rounds ?? teams[1].rounds_won ?? 0}
+                                  </div>
+                                )}
+                                {winner === teams[1].team_name && (
+                                  <div className="mt-1 text-[10px] font-semibold uppercase tracking-wider text-emerald-400">Winner</div>
+                                )}
+                              </div>
+                            ) : (
+                              <div className="rounded-xl border border-white/10 bg-white/[0.02] p-3 text-center text-slate-600">TBD</div>
+                            )}
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        ) : (
+          <div className="rounded-xl border border-white/10 bg-white/[0.03] px-4 py-3 text-sm text-slate-300">
+            Results are not available yet.
+          </div>
+        )
+      )}
+
+      {/* ── TDM results ── */}
+      {hasTDMResults && (
         <div className="overflow-hidden rounded-xl border border-white/10 mt-4">
           <table className="min-w-full divide-y divide-white/10 text-sm">
             <thead className="bg-white/[0.04] text-[11px] uppercase tracking-[0.18em] text-slate-400">
@@ -169,13 +293,14 @@ function ResultsPanel({ tournament }) {
             </tbody>
           </table>
         </div>
-      ) : null}
+      )}
 
-      {!hasResults && tournament.status === 'ended' ? (
+      {/* No results at all */}
+      {!hasBRResults && !hasCSLWStatic && !hasTDMResults && (!isCSLW || (!loading && (!matchResults || matchResults.length === 0))) && (
         <div className="rounded-xl border border-white/10 bg-white/[0.03] px-4 py-3 text-sm text-slate-300">
           Results are not available yet.
         </div>
-      ) : null}
+      )}
     </SectionCard>
   )
 }
@@ -524,7 +649,6 @@ function LongTournamentPanel({ tournamentId, myReg, totalRounds }) {
   )
 }
 
-// ─── UID Lookup Field (league-style) ────────────────────────────────────────
 function UidLookupField({ gameId, onConfirmed, onClear, excludeUids = [], label }) {
   const [uid, setUid] = React.useState('')
   const [state, setState] = React.useState('idle')
@@ -624,7 +748,6 @@ function UidLookupField({ gameId, onConfirmed, onClear, excludeUids = [], label 
   )
 }
 
-// ─── Register Sheet ──────────────────────────────────────────────────────────
 function RegisterSheet({ tournament, playerProfile, hostGameProfile, onClose, onSuccess }) {
   const need = Math.max(0, (tournament.team_size || 1) - 1)
   const [step, setStep] = React.useState(1)
@@ -640,7 +763,6 @@ function RegisterSheet({ tournament, playerProfile, hostGameProfile, onClose, on
     setTeammates(prev => { const next = [...prev]; next[idx] = undefined; return next.filter(Boolean) })
   }
 
-  // Total steps: step 1 = team name, step 2 = teammates (if needed), step 3 (or 2 if solo) = review
   const reviewStep = need > 0 ? 3 : 2
   const totalSteps = reviewStep
 
@@ -669,7 +791,6 @@ function RegisterSheet({ tournament, playerProfile, hostGameProfile, onClose, on
       const { error: memErr } = await supabasePlayer.from('registration_members').insert(members)
       if (memErr) throw memErr
 
-      // ── Auto-flip: close registration & set ongoing when slots are full ──
       if (tournament.max_teams) {
         const { count } = await supabasePlayer
           .from('tournament_registrations')
@@ -694,10 +815,7 @@ function RegisterSheet({ tournament, playerProfile, hostGameProfile, onClose, on
   return (
     <div className="fixed inset-0 z-50 flex flex-col justify-end sm:items-center sm:justify-center bg-black/70 backdrop-blur-sm" onClick={onClose}>
       <div className="relative w-full max-w-lg rounded-t-2xl sm:rounded-2xl bg-slate-900 border border-slate-700/60 max-h-[92vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
-        {/* drag handle (mobile) */}
         <div className="flex justify-center pt-3 pb-1 sm:hidden"><div className="h-1 w-10 rounded-full bg-slate-700" /></div>
-
-        {/* header */}
         <div className="sticky top-0 z-10 bg-slate-900 border-b border-slate-800 px-5 py-4 flex items-center justify-between">
           <div>
             <p className="text-[11px] text-slate-500 uppercase tracking-widest">Register Team</p>
@@ -705,25 +823,18 @@ function RegisterSheet({ tournament, playerProfile, hostGameProfile, onClose, on
           </div>
           <button onClick={onClose} className="rounded-lg p-2 text-slate-400 hover:text-slate-200 hover:bg-slate-800 transition-colors">✕</button>
         </div>
-
-        {/* step progress bar */}
         <div className="flex gap-1.5 px-5 pt-4">
           {Array.from({ length: totalSteps }, (_, i) => i + 1).map(s => (
             <div key={s} className={`h-1 flex-1 rounded-full transition-colors ${s <= step ? 'bg-sky-500' : 'bg-slate-700'}`} />
           ))}
         </div>
-
         <div className="px-5 py-5 space-y-5">
-
-          {/* ── Step 1: Team Name ── */}
           {step === 1 && (
             <div className="space-y-4">
               <div>
                 <h2 className="text-base font-semibold text-slate-100">Team name</h2>
                 <p className="text-xs text-slate-500 mt-1">Choose a name for your team in this tournament.</p>
               </div>
-
-              {/* host info */}
               <div className="rounded-xl border border-slate-700 bg-slate-800/60 px-4 py-3">
                 <div className="text-[10px] uppercase tracking-[0.2em] text-slate-500 mb-1">Your in-game profile</div>
                 <div className="flex items-center gap-3">
@@ -736,7 +847,6 @@ function RegisterSheet({ tournament, playerProfile, hostGameProfile, onClose, on
                   </div>
                 </div>
               </div>
-
               <div className="space-y-1.5">
                 <label className="block text-xs font-medium text-slate-400">Team name</label>
                 <input
@@ -748,7 +858,6 @@ function RegisterSheet({ tournament, playerProfile, hostGameProfile, onClose, on
                 />
                 <div className="text-right text-[11px] text-slate-600">{teamName.length}/32</div>
               </div>
-
               <button
                 onClick={() => { if (teamName.trim().length >= 2) setStep(need > 0 ? 2 : reviewStep) }}
                 disabled={teamName.trim().length < 2}
@@ -758,15 +867,12 @@ function RegisterSheet({ tournament, playerProfile, hostGameProfile, onClose, on
               </button>
             </div>
           )}
-
-          {/* ── Step 2: Teammates (if team size > 1) ── */}
           {step === 2 && need > 0 && (
             <div className="space-y-4">
               <div>
                 <h2 className="text-base font-semibold text-slate-100">Add teammates</h2>
                 <p className="text-xs text-slate-500 mt-1">Search by in-game UID. Teammates must have a verified profile.</p>
               </div>
-
               {Array.from({ length: need }, (_, i) => (
                 <UidLookupField
                   key={i}
@@ -783,28 +889,18 @@ function RegisterSheet({ tournament, playerProfile, hostGameProfile, onClose, on
                   onClear={() => clearTeammate(i)}
                 />
               ))}
-
               <div className="flex gap-3">
                 <button onClick={() => setStep(1)} className="flex-1 rounded-xl border border-slate-700 py-3 text-sm font-medium text-slate-300 hover:bg-slate-800 transition-colors">← Back</button>
-                <button
-  onClick={() => setStep(reviewStep)}
-  className="flex-1 rounded-xl bg-sky-600 py-3 text-sm font-semibold text-white hover:bg-sky-500 transition-colors"
->
-  Continue →
-</button>
+                <button onClick={() => setStep(reviewStep)} className="flex-1 rounded-xl bg-sky-600 py-3 text-sm font-semibold text-white hover:bg-sky-500 transition-colors">Continue →</button>
               </div>
             </div>
           )}
-
-          {/* ── Review & Submit ── */}
           {step === reviewStep && (
             <div className="space-y-4">
               <div>
                 <h2 className="text-base font-semibold text-slate-100">Review & Submit</h2>
                 <p className="text-xs text-slate-500 mt-1">Check your team details before submitting.</p>
               </div>
-
-              {/* summary */}
               <div className="rounded-xl border border-slate-700 bg-slate-800/40 divide-y divide-slate-700/60">
                 <div className="px-4 py-3 flex items-center justify-between">
                   <span className="text-xs text-slate-500">Team name</span>
@@ -821,11 +917,9 @@ function RegisterSheet({ tournament, playerProfile, hostGameProfile, onClose, on
                   </div>
                 ))}
               </div>
-
               {error && (
                 <div className="rounded-xl border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-sm text-rose-300">{error}</div>
               )}
-
               <div className="flex gap-3">
                 <button onClick={() => setStep(need > 0 ? 2 : 1)} className="flex-1 rounded-xl border border-slate-700 py-3 text-sm font-medium text-slate-300 hover:bg-slate-800 transition-colors">← Back</button>
                 <button
@@ -838,7 +932,6 @@ function RegisterSheet({ tournament, playerProfile, hostGameProfile, onClose, on
               </div>
             </div>
           )}
-
         </div>
       </div>
     </div>
@@ -861,7 +954,6 @@ export default function TournamentDetails() {
   const [success, setSuccess] = React.useState('')
   const [regError, setRegError] = React.useState('')
 
-  // ── Load tournament ──────────────────────────────────────────────────────
   React.useEffect(() => {
     let mounted = true
     async function loadTournament() {
@@ -877,12 +969,10 @@ export default function TournamentDetails() {
     return () => { mounted = false }
   }, [id])
 
-  // ── Check my registration ────────────────────────────────────────────────
   React.useEffect(() => {
     let mounted = true
     async function checkMyReg() {
       setMyRegLoading(true)
-
       if (authLoading) return
       if (!user || !profile?.id || !id) {
         setMyReg(null)
@@ -893,7 +983,6 @@ export default function TournamentDetails() {
 
       const tournamentGameId = tournament.game_id
 
-      // 1. Check if this player is the host
       const { data: asHost } = await supabasePlayer
         .from('tournament_registrations')
         .select('id, team_name, status, host_uid, tournament_id')
@@ -903,14 +992,8 @@ export default function TournamentDetails() {
         .maybeSingle()
 
       if (!mounted) return
+      if (asHost) { setMyReg(asHost); setMyRegLoading(false); return }
 
-      if (asHost) {
-        setMyReg(asHost)
-        setMyRegLoading(false)
-        return
-      }
-
-      // 2. Check if this player is a member
       const { data: asMember } = await supabasePlayer
         .from('registration_members')
         .select('registration_id, game_uid, tournament_registrations!inner(id, team_name, status, host_uid, tournament_id)')
@@ -931,7 +1014,6 @@ export default function TournamentDetails() {
       setMyReg(asMember?.tournament_registrations ?? null)
       setMyRegLoading(false)
     }
-
     checkMyReg()
     return () => { mounted = false }
   }, [authLoading, user, profile?.id, id, tournament?.id, tournament?.game_id, regCheckKey])
@@ -955,7 +1037,6 @@ export default function TournamentDetails() {
     setShowRegSheet(true)
   }
 
-  // ── Derived state ────────────────────────────────────────────────────────
   const hasJoined = !!myReg
   const canRegister =
     !myRegLoading &&
@@ -965,7 +1046,6 @@ export default function TournamentDetails() {
 
   const isLong = tournament?.type === 'long'
 
-  // ── Loading / not found ──────────────────────────────────────────────────
   if (loading) {
     return (
       <div className="flex min-h-[40vh] items-center justify-center">
@@ -991,11 +1071,8 @@ export default function TournamentDetails() {
     )
   }
 
-  // ── Page ─────────────────────────────────────────────────────────────────
   return (
     <div className="space-y-6">
-
-      {/* ── Register Sheet modal ── */}
       {showRegSheet && hostGameProfile && (
         <RegisterSheet
           tournament={tournament}
@@ -1010,7 +1087,6 @@ export default function TournamentDetails() {
         />
       )}
 
-      {/* ── Page header ── */}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div className="flex items-start gap-3">
           <button
@@ -1030,7 +1106,6 @@ export default function TournamentDetails() {
           </div>
         </div>
 
-        {/* Register button */}
         <div className="flex flex-col items-end gap-2 shrink-0">
           {myRegLoading ? (
             <div className="flex items-center gap-2 text-sm text-slate-400"><LoadingDots /><span>Checking…</span></div>
@@ -1061,7 +1136,6 @@ export default function TournamentDetails() {
         </div>
       </div>
 
-      {/* ── Stats row ── */}
       <div className="flex flex-wrap gap-2">
         <StatPill label="Mode" value={getModeLabel(tournament.mode)} />
         <StatPill label="Type" value={tournament.type || '—'} />
@@ -1070,7 +1144,6 @@ export default function TournamentDetails() {
         {tournament.max_teams ? <StatPill label="Slots" value={String(tournament.max_teams)} /> : null}
       </div>
 
-      {/* ── Details grid ── */}
       <SectionCard title="Tournament details" subtitle="Key information about this event.">
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
           <DetailRow label="Game" value={tournament.game_name} />
@@ -1084,7 +1157,6 @@ export default function TournamentDetails() {
         </div>
       </SectionCard>
 
-      {/* ── My registration card ── */}
       {hasJoined && myReg && (
         <SectionCard title="Your registration" subtitle="Your team details for this tournament.">
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
@@ -1095,7 +1167,6 @@ export default function TournamentDetails() {
         </SectionCard>
       )}
 
-      {/* ── Long tournament panel ── */}
       {isLong && hasJoined && (
         <LongTournamentPanel
           tournamentId={tournament.id}
@@ -1104,7 +1175,6 @@ export default function TournamentDetails() {
         />
       )}
 
-      {/* ── Room code (only when ongoing or ended and player has joined) ── */}
       {(tournament.status === 'ongoing' || tournament.status === 'ended') && (
         <RoomCodeCard
           tournamentId={tournament.id}
@@ -1113,15 +1183,12 @@ export default function TournamentDetails() {
         />
       )}
 
-      {/* ── Results panel ── */}
+      {/* Results: always show when ended */}
       <ResultsPanel tournament={tournament} />
 
-      {/* ── Registered teams list ── */}
       <RegisteredTeamsList tournamentId={tournament.id} teamSize={tournament.team_size} />
 
-      {/* ── BR Rules ── */}
       {tournament.mode === 'br' && <BRRulesSection gameName={tournament.game_name} />}
-
     </div>
   )
 }
