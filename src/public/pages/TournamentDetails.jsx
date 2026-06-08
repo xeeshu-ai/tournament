@@ -382,6 +382,7 @@ function RoomCodeCard({ tournamentId, hasJoined, myRegLoading }) {
     } catch (_) {}
   }
 
+  // Still loading — don't show anything yet
   if (roomCode === undefined || myRegLoading) {
     return (
       <SectionCard title="Room code" subtitle="Checking eligibility and room details.">
@@ -392,6 +393,19 @@ function RoomCodeCard({ tournamentId, hasJoined, myRegLoading }) {
     )
   }
 
+  // ✅ FIX: Check registration FIRST, then reveal status
+  // This ensures registered players always get the correct message.
+
+  // Not registered — tell them to join first
+  if (!hasJoined) {
+    return (
+      <SectionCard title="Room code" subtitle="Only registered teams can view room credentials.">
+        <LockedHint text="Join this tournament first to unlock the room ID and password." />
+      </SectionCard>
+    )
+  }
+
+  // Registered but room not revealed yet
   if (!roomCode || !roomCode.is_revealed) {
     return (
       <SectionCard title="Room code" subtitle="The organizer has not revealed room credentials yet.">
@@ -400,14 +414,7 @@ function RoomCodeCard({ tournamentId, hasJoined, myRegLoading }) {
     )
   }
 
-  if (!hasJoined) {
-    return (
-      <SectionCard title="Room code" subtitle="Only joined teams can view room credentials.">
-        <LockedHint text="Join this tournament first to unlock the room ID and password." />
-      </SectionCard>
-    )
-  }
-
+  // Registered + revealed — show the room code
   return (
     <SectionCard
       title="Room code"
