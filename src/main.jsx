@@ -22,6 +22,7 @@ import { GameRules } from './public/pages/GameRules'
 import { GameContact } from './public/pages/GameContact'
 import { League } from './public/pages/League'
 import { LeagueTournamentPage } from './public/pages/LeagueTournamentPage'
+import PaymentStatus from './public/pages/PaymentStatus'
 
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
@@ -31,6 +32,9 @@ ReactDOM.createRoot(document.getElementById('root')).render(
 
           {/* ── Public: login (no auth required) ── */}
           <Route path="/login" element={<Login />} />
+
+          {/* ── Public: payment return URL (no auth required) ── */}
+          <Route path="/payment-status" element={<PaymentStatus />} />
 
           {/* ── Forced setup: requires auth, not yet set up ── */}
           <Route path="/profile-setup" element={
