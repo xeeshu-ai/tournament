@@ -310,7 +310,7 @@ function BRRulesSection({ gameName }) {
     ? [
         'All players must join the custom room using the same registered account and in-game UID.',
         'Teaming, spectator abuse, emulator use, hacks, scripts, or exploit abuse leads to disqualification.',
-        'Players must be ready before the room closes. Late join requests may be ignored by the organizer.',
+        'Players must be ready before the room closes. Late join r may be ignored by the organizer.',
         'Points are counted using placement plus kills exactly as published by the organizer.',
         'Any dispute must be raised with valid proof soon after the match ends.'
       ]
