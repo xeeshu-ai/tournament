@@ -488,7 +488,7 @@ function RegisteredTeamsList({ tournamentId, teamSize }) {
                       {row.status || 'pending'}
                     </span>
                   </td>
-                  <td className="px-4 py-3">{teamSize || row.team_size || '—'}</td>
+                  <td className="px-4 py-3">{teamSize || '—'}</td>
                 </tr>
               ))}
             </tbody>
@@ -795,10 +795,8 @@ async function submit() {
         player_id:       playerProfile.id,
         host_player_id:  playerProfile.id,
         host_uid:        hostGameProfile.game_uid,
-        host_ign:        hostGameProfile.in_game_name || '',
         team_name:       teamName.trim(),
         status:          isPaid ? 'pending_payment' : 'pending',
-        team_size:       teamSize,
       })
       .select('id').single()
     if (regErr) throw regErr
