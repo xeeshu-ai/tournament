@@ -785,28 +785,72 @@ function RegisterSheet({ tournament, playerProfile, hostGameProfile, onClose, on
 async function submit() {
   setSubmitting(true); setError('')
   try {
-   const isPaid = tournament.entry_fee && Number(tournament.entry_fee) > 0
+    const isPaid = tournament.entry_fee && Number(tournament.entry_fee) > 0
 
-// ── ADD THIS ──
-const { data: { session } } = await supabasePlayer.auth.getSession()
-const authUid = session?.user?.id
-if (!authUid) throw new Error('Not authenticated.')
-// ─────────────
+    // Get auth session once
+    const { data: { session } } = await supabasePlayer.auth.getSession()
+    const authUid = session?.user?.id
+    const token   = session?.access_token
+    if (!authUid || !token) throw new Error('Not authenticated. Please log in again.')
 
+    if (isPaid) {
+      // ── PAID: call quick-service first, open Cashfree, webhook does the insert ──
+      const res = await fetch(
+        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/quick-service`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type':  'application/json',
+            'Authorization': `Bearer ${token}`,
+          },
+          body: JSON.stringify({
+            tournament_id: tournament.id,
+            team_name:     teamName.trim(),
+            entry_fee:     Number(tournament.entry_fee),
+            player_id:     authUid,
+            player_db_id:  playerProfile.id,
+            host_uid:      hostGameProfile.game_uid,
+            host_ign:      hostGameProfile.in_game_name || '',
+            player_name:   hostGameProfile.in_game_name || playerProfile.full_name || 'Player',
+            player_email:  playerProfile.email || 'player@tournvia.com',
+            player_phone:  playerProfile.phone || '9999999999',
+            teammates: teammates.map((t, i) => ({
+              player_id:    t.playerId,
+              slot:         i + 2,
+              game_uid:     t.gameUid,
+              in_game_name: t.inGameName,
+            })),
+          }),
+        }
+      )
+      const result = await res.json()
+      if (!res.ok) throw new Error(result.error || 'Payment initiation failed')
+
+      if (result.payment_session_id) {
+        const cashfree = await loadCashfreeSDK()
+        cashfree.checkout({
+          paymentSessionId: result.payment_session_id,
+          returnUrl: `${window.location.origin}/payment-status?order_id=${result.order_id}`,
+        })
+        return
+      }
+      throw new Error('Could not create payment session.')
+    }
+
+    // ── FREE tournament: insert registration directly ──────────────────
     const { data: reg, error: regErr } = await supabasePlayer
       .from('tournament_registrations')
       .insert({
-        tournament_id:   tournament.id,
-        player_id:       authUid,
-        host_player_id:  authUid,
-        host_uid:        hostGameProfile.game_uid,
-        team_name:       teamName.trim(),
-        status:          isPaid ? 'pending_payment' : 'pending',
+        tournament_id:  tournament.id,
+        player_id:      authUid,
+        host_player_id: authUid,
+        host_uid:       hostGameProfile.game_uid,
+        team_name:      teamName.trim(),
+        status:         'confirmed',
       })
       .select('id').single()
     if (regErr) throw regErr
 
-    // ── Step 2: Insert team members ──────────────────────────────────────
     const members = [
       {
         registration_id: reg.id,
@@ -827,48 +871,6 @@ if (!authUid) throw new Error('Not authenticated.')
       .from('registration_members').insert(members)
     if (memErr) throw memErr
 
-    // ── Step 3: If paid, call quick-service and redirect to Cashfree ─────
-    if (isPaid) {
-      const { data: sessionData } = await supabasePlayer.auth.getSession()
-      const token = sessionData?.session?.access_token
-      if (!token) throw new Error('Not authenticated. Please log in again.')
-
-      const res = await fetch(
-        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/quick-service`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type':  'application/json',
-            'Authorization': `Bearer ${token}`,
-          },
-          body: JSON.stringify({
-            registration_id: reg.id,
-            tournament_id:   tournament.id,
-            team_name:       teamName.trim(),
-            entry_fee:       Number(tournament.entry_fee),
-            player_name:     hostGameProfile.in_game_name || playerProfile.full_name || 'Player',
-            player_email:    playerProfile.email || 'player@tournvia.com',
-            player_phone:    playerProfile.phone || '9999999999',
-          }),
-        }
-      )
-
-      const result = await res.json()
-      if (!res.ok) throw new Error(result.error || 'Payment initiation failed')
-
-      // ── Redirect to Cashfree payment page ─────────────────────────────
-      if (result.payment_session_id) {
-        // Load Cashfree JS SDK and open checkout
-        const cashfree = await loadCashfreeSDK()
-        cashfree.checkout({
-          paymentSessionId: result.payment_session_id,
-          returnUrl: `${window.location.origin}/payment-status?order_id=${result.order_id}&reg_id=${reg.id}`,
-        })
-        return  // page will redirect; don't call onSuccess
-      }
-    }
-
-    // ── Free tournament: success immediately ──────────────────────────────
     onSuccess()
   } catch (e) {
     setError(e.message || 'Registration failed. Try again.')
