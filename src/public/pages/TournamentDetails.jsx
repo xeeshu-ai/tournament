@@ -785,8 +785,13 @@ function RegisterSheet({ tournament, playerProfile, hostGameProfile, onClose, on
 async function submit() {
   setSubmitting(true); setError('')
   try {
-    // ── Step 1: Insert registration row ─────────────────────────────────
-    const isPaid = tournament.entry_fee && Number(tournament.entry_fee) > 0
+   const isPaid = tournament.entry_fee && Number(tournament.entry_fee) > 0
+
+// ── ADD THIS ──
+const { data: { session } } = await supabasePlayer.auth.getSession()
+const authUid = session?.user?.id
+if (!authUid) throw new Error('Not authenticated.')
+// ─────────────
 
     const { data: reg, error: regErr } = await supabasePlayer
       .from('tournament_registrations')
