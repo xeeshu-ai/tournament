@@ -797,8 +797,8 @@ if (!authUid) throw new Error('Not authenticated.')
       .from('tournament_registrations')
       .insert({
         tournament_id:   tournament.id,
-        player_id:       playerProfile.auth_id,
-        host_player_id:  playerProfile.auth_id,
+        player_id:       authUid,
+        host_player_id:  authUid,
         host_uid:        hostGameProfile.game_uid,
         team_name:       teamName.trim(),
         status:          isPaid ? 'pending_payment' : 'pending',
