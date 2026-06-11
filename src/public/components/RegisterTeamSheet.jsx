@@ -35,53 +35,80 @@ export function RegisterTeamSheet({ tournament, gameProfile, onClose, onRegister
   }
 
   const handleSubmit = async () => {
-    setSubmitting(true)
-    setError('')
-    try {
-      // 1. Create registration row
-      const { data: reg, error: regErr } = await supabasePlayer
-        .from('tournament_registrations')
-        .insert({
-          tournament_id:  tournament.id,
-          host_player_id: user.id,
-          host_uid:       gameProfile?.game_uid ?? '',
-          team_name:      teamName.trim(),
-          status:         'pending',
-        })
-        .select('id')
-        .single()
-      if (regErr) throw regErr
+  setSubmitting(true)
+  setError('')
+  try {
+    const isFree = !tournament.entry_fee || Number(tournament.entry_fee) === 0
 
-      // 2. Build members array — host is slot 1
-      const members = [
+    // 1. Insert registration
+    const { data: reg, error: regErr } = await supabasePlayer
+      .from('tournament_registrations')
+      .insert({
+        tournament_id:  tournament.id,
+        player_id:      user.id,          // ← ADD THIS (fixes checkMyReg)
+        host_player_id: user.id,
+        host_uid:       gameProfile?.game_uid ?? '',
+        team_name:      teamName.trim(),
+        status:         isFree ? 'pending' : 'pending_payment',
+      })
+      .select('id')
+      .single()
+    if (regErr) throw regErr
+
+    // 2. Insert members
+    const members = [
+      {
+        registration_id: reg.id,
+        player_id:       user.id,
+        slot:            1,
+        game_uid:        gameProfile?.game_uid ?? '',
+        in_game_name:    gameProfile?.in_game_name ?? profile?.full_name ?? '',
+      },
+      ...teammates.map((t, i) => ({
+        registration_id: reg.id,
+        player_id:       t.data.player_id,
+        slot:            i + 2,
+        game_uid:        t.data.game_uid,
+        in_game_name:    t.data.in_game_name,
+      }))
+    ]
+    const { error: memErr } = await supabasePlayer
+      .from('registration_members').insert(members)
+    if (memErr) throw memErr
+
+    // 3. For paid tournaments — call quick-service to create Cashfree order
+    if (!isFree) {
+      const { data: { session } } = await supabasePlayer.auth.getSession()
+      const res = await fetch(
+        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/quick-service`,
         {
-          registration_id: reg.id,
-          player_id:       user.id,
-          slot:            1,
-          game_uid:        gameProfile?.game_uid ?? '',
-          in_game_name:    gameProfile?.in_game_name ?? profile?.full_name ?? '',
-        },
-        ...teammates.map((t, i) => ({
-          registration_id: reg.id,
-          player_id:       t.data.player_id,
-          slot:            i + 2,
-          game_uid:        t.data.game_uid,
-          in_game_name:    t.data.in_game_name,
-        }))
-      ]
-
-      const { error: memErr } = await supabasePlayer
-        .from('registration_members')
-        .insert(members)
-      if (memErr) throw memErr
-
-      onRegistered()
-    } catch (e) {
-      setError(e.message ?? 'Registration failed. Please try again.')
-      setSubmitting(false)
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${session.access_token}`,
+          },
+          body: JSON.stringify({
+            registration_id: tournament.id,
+            amount: tournament.entry_fee,
+            player_id: user.id,
+          }),
+        }
+      )
+      const result = await res.json()
+      if (!res.ok) throw new Error(result.error || 'Payment initiation failed')
+      // Redirect to Cashfree payment page
+      if (result.payment_url) {
+        window.location.href = result.payment_url
+        return
+      }
     }
-  }
 
+    onRegistered()
+  } catch (e) {
+    setError(e.message ?? 'Registration failed. Please try again.')
+    setSubmitting(false)
+  }
+}
   const isFree = !tournament.entry_fee || Number(tournament.entry_fee) === 0
 
   return (
