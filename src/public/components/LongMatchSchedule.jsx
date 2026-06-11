@@ -128,7 +128,7 @@ export function LongMatchSchedule({ tournamentId }) {
                         {m.status === 'completed'
                           ? <p className="text-[10px] text-slate-400">Results posted</p>
                           : <p className="text-[10px] text-slate-500">Results pending</p>
-                        }
+                      }
                       </div>
                     )}
                     <span className={`flex-shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase ${meta.cls}`}>
