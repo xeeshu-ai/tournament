@@ -752,7 +752,18 @@ function UidLookupField({ gameId, onConfirmed, onClear, excludeUids = [], label 
     </div>
   )
 }
-
+// Dynamically loads Cashfree JS SDK
+async function loadCashfreeSDK() {
+  if (window.Cashfree) return window.Cashfree({ mode: import.meta.env.VITE_CASHFREE_ENV === 'PROD' ? 'production' : 'sandbox' })
+  await new Promise((resolve, reject) => {
+    const script = document.createElement('script')
+    script.src = 'https://sdk.cashfree.com/js/v3/cashfree.js'
+    script.onload = resolve
+    script.onerror = () => reject(new Error('Failed to load Cashfree SDK'))
+    document.head.appendChild(script)
+  })
+  return window.Cashfree({ mode: import.meta.env.VITE_CASHFREE_ENV === 'PROD' ? 'production' : 'sandbox' })
+}
 function RegisterSheet({ tournament, playerProfile, hostGameProfile, onClose, onSuccess }) {
   const need = Math.max(0, (tournament.team_size || 1) - 1)
   const [step, setStep] = React.useState(1)
@@ -771,52 +782,97 @@ function RegisterSheet({ tournament, playerProfile, hostGameProfile, onClose, on
   const reviewStep = need > 0 ? 3 : 2
   const totalSteps = reviewStep
 
-  async function submit() {
-    setSubmitting(true); setError('')
-    try {
-      const { data: reg, error: regErr } = await supabasePlayer
-        .from('tournament_registrations')
-        .insert({
-          tournament_id: tournament.id,
-          player_id: playerProfile.id,
-          host_player_id: playerProfile.id,
-          host_uid: hostGameProfile.game_uid,
-          host_ign: hostGameProfile.in_game_name || '',
-          team_name: teamName.trim(),
-          status: 'pending',
-          team_size: teamSize,
-        })
-        .select('id').single()
-      if (regErr) throw regErr
+async function submit() {
+  setSubmitting(true); setError('')
+  try {
+    // ── Step 1: Insert registration row ─────────────────────────────────
+    const isPaid = tournament.entry_fee && Number(tournament.entry_fee) > 0
 
-      const members = [
-        { registration_id: reg.id, player_id: playerProfile.id, slot: 1, game_uid: hostGameProfile.game_uid, in_game_name: hostGameProfile.in_game_name },
-        ...teammates.map((t, i) => ({ registration_id: reg.id, player_id: t.playerId, slot: i + 2, game_uid: t.gameUid, in_game_name: t.inGameName })),
-      ]
-      const { error: memErr } = await supabasePlayer.from('registration_members').insert(members)
-      if (memErr) throw memErr
+    const { data: reg, error: regErr } = await supabasePlayer
+      .from('tournament_registrations')
+      .insert({
+        tournament_id:   tournament.id,
+        player_id:       playerProfile.id,
+        host_player_id:  playerProfile.id,
+        host_uid:        hostGameProfile.game_uid,
+        host_ign:        hostGameProfile.in_game_name || '',
+        team_name:       teamName.trim(),
+        status:          isPaid ? 'pending_payment' : 'pending',
+        team_size:       teamSize,
+      })
+      .select('id').single()
+    if (regErr) throw regErr
 
-      if (tournament.max_teams) {
-        const { count } = await supabasePlayer
-          .from('tournament_registrations')
-          .select('id', { count: 'exact', head: true })
-          .eq('tournament_id', tournament.id)
-          .not('status', 'in', '(rejected,cancelled)')
-        if (count >= tournament.max_teams) {
-          await supabasePlayer
-            .from('tournaments')
-            .update({ registration_status: 'closed', status: 'ongoing' })
-            .eq('id', tournament.id)
+    // ── Step 2: Insert team members ──────────────────────────────────────
+    const members = [
+      {
+        registration_id: reg.id,
+        player_id:       playerProfile.id,
+        slot:            1,
+        game_uid:        hostGameProfile.game_uid,
+        in_game_name:    hostGameProfile.in_game_name,
+      },
+      ...teammates.map((t, i) => ({
+        registration_id: reg.id,
+        player_id:       t.playerId,
+        slot:            i + 2,
+        game_uid:        t.gameUid,
+        in_game_name:    t.inGameName,
+      })),
+    ]
+    const { error: memErr } = await supabasePlayer
+      .from('registration_members').insert(members)
+    if (memErr) throw memErr
+
+    // ── Step 3: If paid, call quick-service and redirect to Cashfree ─────
+    if (isPaid) {
+      const { data: sessionData } = await supabasePlayer.auth.getSession()
+      const token = sessionData?.session?.access_token
+      if (!token) throw new Error('Not authenticated. Please log in again.')
+
+      const res = await fetch(
+        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/quick-service`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type':  'application/json',
+            'Authorization': `Bearer ${token}`,
+          },
+          body: JSON.stringify({
+            registration_id: reg.id,
+            tournament_id:   tournament.id,
+            team_name:       teamName.trim(),
+            entry_fee:       Number(tournament.entry_fee),
+            player_name:     hostGameProfile.in_game_name || playerProfile.full_name || 'Player',
+            player_email:    playerProfile.email || 'player@tournvia.com',
+            player_phone:    playerProfile.phone || '9999999999',
+          }),
         }
-      }
-      onSuccess()
-    } catch (e) {
-      setError(e.message || 'Registration failed. Try again.')
-    } finally {
-      setSubmitting(false)
-    }
-  }
+      )
 
+      const result = await res.json()
+      if (!res.ok) throw new Error(result.error || 'Payment initiation failed')
+
+      // ── Redirect to Cashfree payment page ─────────────────────────────
+      if (result.payment_session_id) {
+        // Load Cashfree JS SDK and open checkout
+        const cashfree = await loadCashfreeSDK()
+        cashfree.checkout({
+          paymentSessionId: result.payment_session_id,
+          returnUrl: `${window.location.origin}/payment-status?order_id=${result.order_id}&reg_id=${reg.id}`,
+        })
+        return  // page will redirect; don't call onSuccess
+      }
+    }
+
+    // ── Free tournament: success immediately ──────────────────────────────
+    onSuccess()
+  } catch (e) {
+    setError(e.message || 'Registration failed. Try again.')
+  } finally {
+    setSubmitting(false)
+  }
+}
   return (
     <div className="fixed inset-0 z-50 flex flex-col justify-end sm:items-center sm:justify-center bg-black/70 backdrop-blur-sm" onClick={onClose}>
       <div className="relative w-full max-w-lg rounded-t-2xl sm:rounded-2xl bg-slate-900 border border-slate-700/60 max-h-[92vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
@@ -999,18 +1055,29 @@ export default function TournamentDetails() {
       if (!mounted) return
       if (asHost) { setMyReg(asHost); setMyRegLoading(false); return }
 
+            // ── Fetch game profile first (safe, no nesting) ───────────────────
+      const { data: gp } = await supabasePlayer
+        .from('game_profiles')
+        .select('game_uid')
+        .eq('player_id', profile.id)
+        .eq('game_id', tournamentGameId)
+        .eq('status', 'verified')
+        .maybeSingle()
+
+      if (!mounted) return
+
+      if (!gp?.game_uid) {
+        // Player has no verified game profile → definitely not a member
+        setMyReg(null)
+        setMyRegLoading(false)
+        return
+      }
+
       const { data: asMember } = await supabasePlayer
         .from('registration_members')
         .select('registration_id, game_uid, tournament_registrations!inner(id, team_name, status, host_uid, tournament_id)')
         .eq('player_id', profile.id)
-        .eq('game_uid', (await supabasePlayer
-          .from('game_profiles')
-          .select('game_uid')
-          .eq('player_id', profile.id)
-          .eq('game_id', tournamentGameId)
-          .eq('status', 'verified')
-          .maybeSingle()
-        ).data?.game_uid || '')
+        .eq('game_uid', gp.game_uid)
         .not('tournament_registrations.status', 'in', '(rejected,cancelled)')
         .eq('tournament_registrations.tournament_id', id)
         .maybeSingle()
