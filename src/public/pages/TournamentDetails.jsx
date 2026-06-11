@@ -797,8 +797,8 @@ if (!authUid) throw new Error('Not authenticated.')
       .from('tournament_registrations')
       .insert({
         tournament_id:   tournament.id,
-        player_id:       playerProfile.id,
-        host_player_id:  playerProfile.id,
+        player_id:       playerProfile.auth_id,
+        host_player_id:  playerProfile.auth_id,
         host_uid:        hostGameProfile.game_uid,
         team_name:       teamName.trim(),
         status:          isPaid ? 'pending_payment' : 'pending',
@@ -810,7 +810,7 @@ if (!authUid) throw new Error('Not authenticated.')
     const members = [
       {
         registration_id: reg.id,
-        player_id:       playerProfile.id,
+        player_id:       playerProfile.auth_id,
         slot:            1,
         game_uid:        hostGameProfile.game_uid,
         in_game_name:    hostGameProfile.in_game_name,
