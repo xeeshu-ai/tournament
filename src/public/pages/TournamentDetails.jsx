@@ -810,7 +810,7 @@ if (!authUid) throw new Error('Not authenticated.')
     const members = [
       {
         registration_id: reg.id,
-        player_id:       playerProfile.auth_id,
+        player_id:       playerProfile.id,
         slot:            1,
         game_uid:        hostGameProfile.game_uid,
         in_game_name:    hostGameProfile.in_game_name,
